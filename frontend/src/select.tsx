@@ -2,13 +2,41 @@ import React from 'react';
 import SelectActionCard from './card.tsx';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { Box } from '@mui/material';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
 
 export default function SelectPage() {
   const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
+  const [openDialog, setOpenDialog] = React.useState(false);
+  const [apiMessage, setApiMessage] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     console.log('Continue clicked with selection:', selectedCard);
+    
+    setLoading(true);
+    try {
+      // Call the FastAPI endpoint
+      const response = await fetch('/api');
+      const data = await response.json();
+      
+      // Set the message from the API response
+      setApiMessage(data.message || 'No message received');
+      setOpenDialog(true);
+    } catch (error) {
+      console.error('Error calling API:', error);
+      setApiMessage('Error: Failed to connect to the API');
+      setOpenDialog(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
   };
 
   return (
@@ -50,10 +78,25 @@ export default function SelectPage() {
           fontWeight: 'bold',
         }}
         onClick={handleContinue}
-        disabled={selectedCard === null}
+        disabled={selectedCard === null || loading} // disable until selection is made or while loading
       >
-        Continue
+        {loading ? 'Loading...' : 'Continue'}
       </Button>
-    </Box>
+
+      {/* Dialog to display API message */}
+      <Dialog open={openDialog} onClose={handleCloseDialog}>
+        <DialogTitle>API Response</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {apiMessage}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </div>
   );
 }
