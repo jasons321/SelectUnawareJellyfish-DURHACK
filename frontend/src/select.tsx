@@ -33,12 +33,11 @@ export default function SelectPage() {
   const handleContinue = () => {
     console.log('Continue clicked with selection:', selectedCard);
 
-    // ✅ Only open popup if "Local Computer" card is selected (e.g., index 0)
+    // ✅ Only open popup if "Local Computer" card is selected (e.g., index 1)
     if (selectedCard === 1) {
       setOpenPopup(true);
     } else {
       console.log('Popup only opens for Local Computer card');
-      // Optionally: alert('File upload is only available for Local Computer.');
     }
   };
 
@@ -46,10 +45,14 @@ export default function SelectPage() {
   const handleFilesSelect = (newFiles: FileList | null) => {
     if (!newFiles) return;
     const fileArray = Array.from(newFiles);
-    // Avoid duplicates
+
+    // ✅ Filter only image files and avoid duplicates
     const uniqueFiles = fileArray.filter(
-      (f) => !files.some((existing) => existing.name === f.name)
+      (f) =>
+        f.type.startsWith('image/') &&
+        !files.some((existing) => existing.name === f.name)
     );
+
     setFiles((prev) => [...prev, ...uniqueFiles]);
   };
 
@@ -122,7 +125,10 @@ export default function SelectPage() {
       </Typography>
 
       {/* Card Selection */}
-      <SelectActionCard selectedCard={selectedCard} onSelectCard={setSelectedCard} />
+      <SelectActionCard
+        selectedCard={selectedCard}
+        onSelectCard={setSelectedCard}
+      />
 
       {/* Continue Button */}
       <Button
@@ -182,12 +188,16 @@ export default function SelectPage() {
                   color: dragOver ? theme.palette.primary.main : '#90a4ae',
                 }}
               />
-              <Typography variant="body1" sx={{ mt: 1, color: '#607d8b', textAlign: 'center' }}>
-                Drag & Drop your files here or click to browse
+              <Typography
+                variant="body1"
+                sx={{ mt: 1, color: '#607d8b', textAlign: 'center' }}
+              >
+                Drag & Drop your <strong>image files</strong> here or click to browse
               </Typography>
               <input
                 id="fileInput"
                 type="file"
+                accept="image/*" // ✅ Only accept image formats
                 multiple
                 onChange={(e) => handleFilesSelect(e.target.files)}
                 style={{ display: 'none' }}
@@ -253,7 +263,11 @@ export default function SelectPage() {
                   minWidth: 200,
                 }}
               >
-                {uploading ? <CircularProgress size={24} color="inherit" /> : 'Upload All'}
+                {uploading ? (
+                  <CircularProgress size={24} color="inherit" />
+                ) : (
+                  'Upload All'
+                )}
               </Button>
             </Box>
           )}
