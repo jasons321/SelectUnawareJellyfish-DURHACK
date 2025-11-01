@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -9,7 +9,11 @@ from googleapiclient.errors import HttpError
 import os
 from pathlib import Path
 import secrets
-from typing import Dict
+from typing import Dict, List
+from PIL import Image
+import imagehash
+import io
+from collections import defaultdict
 import json
 
 # Create FastAPI instance
@@ -189,6 +193,57 @@ async def list_drive_files(request: Request, max_results: int = 10):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+SIMILARITY_THRESHOLD =20 # Adjust as needed
+
+@app.post("/api/compute/phash-group")
+async def compute_phash_group(images: List[UploadFile] = File(...)):
+    """
+    Compute pHashes for uploaded images and group visually similar images.
+    """
+    phash_dict = {}
+
+    # Compute pHash for each image
+    for img_file in images:
+        try:
+            contents = await img_file.read()
+            image = Image.open(io.BytesIO(contents))
+            phash_dict[img_file.filename] = imagehash.phash(image)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error processing {img_file.filename}: {str(e)}")
+
+    # Create adjacency list for similar images
+    adjacency = {fname: set() for fname in phash_dict.keys()}
+    filenames = list(phash_dict.keys())
+
+    for i, file1 in enumerate(filenames):
+        for j in range(i + 1, len(filenames)):
+            file2 = filenames[j]
+            if phash_dict[file1] - phash_dict[file2] <= SIMILARITY_THRESHOLD:
+                adjacency[file1].add(file2)
+                adjacency[file2].add(file1)
+
+    # Find connected components (groups)
+    visited = set()
+    groups = []
+
+    def dfs(node, group):
+        visited.add(node)
+        group.append(node)
+        for neighbor in adjacency[node]:
+            if neighbor not in visited:
+                dfs(neighbor, group)
+
+    for fname in filenames:
+        if fname not in visited:
+            group = []
+            dfs(fname, group)
+            groups.append(group)
+
+    # Convert phash to string for response
+    phash_str = {fname: str(hash_val) for fname, hash_val in phash_dict.items()}
+
+    return {"success": True, "phash": phash_str, "groups": groups}
 
 # Serve React App (catch-all route for SPA)
 @app.get("/{full_path:path}")
