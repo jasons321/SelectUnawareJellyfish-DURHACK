@@ -20,7 +20,6 @@ export default function SelectPage() {
         flexDirection: 'column', // stack vertically
         justifyContent: 'center',
         alignItems: 'center',
-        height: '100vh',
         padding: '1rem',
         gap: '2rem', // space between elements
       }}
