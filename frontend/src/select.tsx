@@ -1,31 +1,38 @@
-// Select.tsx
 import React from 'react';
 import SelectActionCard from './card.tsx';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
+import { Box } from '@mui/material';
 
 export default function SelectPage() {
   const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
 
   const handleContinue = () => {
     console.log('Continue clicked with selection:', selectedCard);
-    // You can add navigation or logic here, e.g.:
-    // if (selectedCard === 0) navigate('/upload');
   };
 
   return (
-    <div
-      style={{
+    <Box
+      sx={{
+        width: '100vw',
+        height: '100vh',
         display: 'flex',
-        flexDirection: 'column', // stack vertically
+        flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: '1rem',
-        gap: '2rem', // space between elements
+        gap: 4,
+        p: 2,
+        boxSizing: 'border-box',
+        backgroundColor: '#f5f5f5', // optional
+        mx: 'auto',
       }}
     >
       {/* Big Top Title */}
-      <Typography variant="h3" component="h1" sx={{ fontWeight: 'bold', color: '#283b4a' }}>
+      <Typography
+        variant="h3"
+        component="h1"
+        sx={{ fontWeight: 'bold', color: '#283b4a', textAlign: 'center' }}
+      >
         Upload Your Files
       </Typography>
 
@@ -43,10 +50,10 @@ export default function SelectPage() {
           fontWeight: 'bold',
         }}
         onClick={handleContinue}
-        disabled={selectedCard === null} // disable until selection is made
+        disabled={selectedCard === null}
       >
         Continue
       </Button>
-    </div>
+    </Box>
   );
 }
