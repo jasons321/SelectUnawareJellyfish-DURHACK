@@ -97,10 +97,26 @@ export default function SelectPage() {
     setUploading(false);
   };
 
-  const handleLocalCompute = () => {
-    console.log('Local compute pressed with files:', uploadedFiles);
-    setOpenPopup(false);
-  };
+  const handleLocalCompute = async () => {
+    if (files.length === 0) return;
+
+    const formData = new FormData();
+    files.forEach((file) => formData.append('images', file));
+
+    try {
+        const response = await fetch('http://localhost:8001/api/compute/phash-group', {
+        method: 'POST',
+        body: formData
+        });
+        const result = await response.json();
+
+        console.log('pHash groups:', result.groups);
+        alert(`Found ${result.groups.length} group(s) of similar images!`);
+    } catch (err) {
+        console.error('Error computing image groups:', err);
+    }
+    };
+
 
   return (
     <Box
