@@ -19,6 +19,7 @@ import {
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
+import { useNavigate } from 'react-router-dom'; // ✅ Added for navigation
 
 export default function SelectPage() {
   const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
@@ -28,17 +29,17 @@ export default function SelectPage() {
   const [dragOver, setDragOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const theme = useTheme();
+  const navigate = useNavigate(); // ✅ Hook for navigation
 
   /** Continue button handler */
   const handleContinue = () => {
     console.log('Continue clicked with selection:', selectedCard);
 
-    // ✅ Only open popup if "Local Computer" card is selected (e.g., index 0)
+    // ✅ Only open popup if "Local Computer" card is selected (index 1)
     if (selectedCard === 1) {
       setOpenPopup(true);
     } else {
       console.log('Popup only opens for Local Computer card');
-      // Optionally: alert('File upload is only available for Local Computer.');
     }
   };
 
@@ -46,10 +47,14 @@ export default function SelectPage() {
   const handleFilesSelect = (newFiles: FileList | null) => {
     if (!newFiles) return;
     const fileArray = Array.from(newFiles);
-    // Avoid duplicates
+
+    // ✅ Filter only image files and avoid duplicates
     const uniqueFiles = fileArray.filter(
-      (f) => !files.some((existing) => existing.name === f.name)
+      (f) =>
+        f.type.startsWith('image/') &&
+        !files.some((existing) => existing.name === f.name)
     );
+
     setFiles((prev) => [...prev, ...uniqueFiles]);
   };
 
@@ -75,7 +80,6 @@ export default function SelectPage() {
     if (files.length === 0) return;
     setUploading(true);
 
-    // Simulate per-file upload delay
     for (const f of files) {
       await new Promise((resolve) => setTimeout(resolve, 700));
       setUploadedFiles((prev) =>
@@ -94,9 +98,39 @@ export default function SelectPage() {
     setUploading(false);
   };
 
-  const handleLocalCompute = () => {
-    console.log('Local compute pressed with files:', uploadedFiles);
-    setOpenPopup(false);
+  /** Local Compute (calls backend + navigates to results page) */
+  const handleLocalCompute = async () => {
+    if (files.length === 0) return;
+
+    const formData = new FormData();
+    files.forEach((file) => formData.append('images', file));
+
+    try {
+      const response = await fetch('http://localhost:8001/api/compute/phash-group', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Server error');
+
+      const result = await response.json();
+
+      console.log('pHash groups:', result.groups);
+
+      // ✅ Navigate to results page with data
+      navigate('/results', {
+        state: {
+          groups: result.groups,
+          phash: result.phash,
+          files: files.map((f) => ({
+            name: f.name,
+            url: URL.createObjectURL(f),
+          })),
+        },
+      });
+    } catch (err) {
+      console.error('Error computing image groups:', err);
+    }
   };
 
   return (
@@ -122,7 +156,10 @@ export default function SelectPage() {
       </Typography>
 
       {/* Card Selection */}
-      <SelectActionCard selectedCard={selectedCard} onSelectCard={setSelectedCard} />
+      <SelectActionCard
+        selectedCard={selectedCard}
+        onSelectCard={setSelectedCard}
+      />
 
       {/* Continue Button */}
       <Button
@@ -182,12 +219,16 @@ export default function SelectPage() {
                   color: dragOver ? theme.palette.primary.main : '#90a4ae',
                 }}
               />
-              <Typography variant="body1" sx={{ mt: 1, color: '#607d8b', textAlign: 'center' }}>
-                Drag & Drop your files here or click to browse
+              <Typography
+                variant="body1"
+                sx={{ mt: 1, color: '#607d8b', textAlign: 'center' }}
+              >
+                Drag & Drop your <strong>image files</strong> here or click to browse
               </Typography>
               <input
                 id="fileInput"
                 type="file"
+                accept="image/*"
                 multiple
                 onChange={(e) => handleFilesSelect(e.target.files)}
                 style={{ display: 'none' }}
@@ -253,7 +294,11 @@ export default function SelectPage() {
                   minWidth: 200,
                 }}
               >
-                {uploading ? <CircularProgress size={24} color="inherit" /> : 'Upload All'}
+                {uploading ? (
+                  <CircularProgress size={24} color="inherit" />
+                ) : (
+                  'Upload All'
+                )}
               </Button>
             </Box>
           )}
