@@ -1,4 +1,3 @@
-// Select.tsx
 import React from 'react';
 import SelectActionCard from './card.tsx';
 import Button from '@mui/material/Button';
@@ -130,8 +129,10 @@ export default function SelectPage() {
   };
 
   return (
-    <div
-      style={{
+    <Box
+      sx={{
+        width: '100vw',
+        height: '100vh',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
@@ -141,7 +142,11 @@ export default function SelectPage() {
       }}
     >
       {/* Big Top Title */}
-      <Typography variant="h3" component="h1" sx={{ fontWeight: 'bold', color: '#283b4a' }}>
+      <Typography
+        variant="h3"
+        component="h1"
+        sx={{ fontWeight: 'bold', color: '#283b4a', textAlign: 'center' }}
+      >
         Upload Your Files
       </Typography>
 
@@ -237,6 +242,6 @@ export default function SelectPage() {
           </Button>
         </DialogActions>
       </Dialog>
-    </div>
+    </Box> 
   );
 }
