@@ -7,6 +7,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
+import Box from '@mui/material/Box'; // ✅ Missing import added
 
 export default function SelectPage() {
   const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
@@ -16,13 +17,13 @@ export default function SelectPage() {
 
   const handleContinue = async () => {
     console.log('Continue clicked with selection:', selectedCard);
-    
+
     setLoading(true);
     try {
       // Call the FastAPI endpoint
       const response = await fetch('/api');
       const data = await response.json();
-      
+
       // Set the message from the API response
       setApiMessage(data.message || 'No message received');
       setOpenDialog(true);
@@ -51,7 +52,7 @@ export default function SelectPage() {
         gap: 4,
         p: 2,
         boxSizing: 'border-box',
-        backgroundColor: '#f5f5f5', // optional
+        backgroundColor: '#f5f5f5',
         mx: 'auto',
       }}
     >
@@ -78,7 +79,7 @@ export default function SelectPage() {
           fontWeight: 'bold',
         }}
         onClick={handleContinue}
-        disabled={selectedCard === null || loading} // disable until selection is made or while loading
+        disabled={selectedCard === null || loading}
       >
         {loading ? 'Loading...' : 'Continue'}
       </Button>
@@ -87,9 +88,7 @@ export default function SelectPage() {
       <Dialog open={openDialog} onClose={handleCloseDialog}>
         <DialogTitle>API Response</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            {apiMessage}
-          </DialogContentText>
+          <DialogContentText>{apiMessage}</DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog} color="primary">
@@ -97,6 +96,6 @@ export default function SelectPage() {
           </Button>
         </DialogActions>
       </Dialog>
-    </div>
+    </Box> 
   );
 }
