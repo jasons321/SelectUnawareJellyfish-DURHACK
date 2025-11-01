@@ -1,131 +1,102 @@
 import React from 'react';
 import SelectActionCard from './card.tsx';
-import Button from '@mui/material/Button';
-import Typography from '@mui/material/Typography';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogActions from '@mui/material/DialogActions';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
-import Box from '@mui/material/Box';
-
-interface DriveFile {
-  id: string;
-  name: string;
-  mimeType: string;
-  modifiedTime: string;
-  size?: string;
-  webViewLink?: string;
-}
+import {
+  Button,
+  Typography,
+  Box,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
+  useTheme,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Divider,
+} from '@mui/material';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 
 export default function SelectPage() {
   const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
-  const [openDialog, setOpenDialog] = React.useState(false);
-  const [driveFiles, setDriveFiles] = React.useState<DriveFile[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
+  const [openPopup, setOpenPopup] = React.useState(false);
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [uploadedFiles, setUploadedFiles] = React.useState<string[]>([]);
+  const [dragOver, setDragOver] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const theme = useTheme();
 
-  // Check if we just returned from OAuth and should auto-fetch files
-  React.useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const justAuthenticated = urlParams.get('authenticated');
-    
-    if (justAuthenticated === 'true') {
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-      
-      // Auto-fetch files after authentication
-      fetchDriveFiles();
-    }
-  }, []);
-
-  const fetchDriveFiles = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Check authentication status
-      const authResponse = await fetch('/api/auth/status');
-      const authData = await authResponse.json();
-      
-      if (!authData.authenticated) {
-        setIsAuthenticated(false);
-        setError('Not authenticated. Please log in to Google Drive first.');
-        setOpenDialog(true);
-        setLoading(false);
-        return;
-      }
-      
-      setIsAuthenticated(true);
-      
-      // Fetch Drive files
-      const filesResponse = await fetch('/api/drive/files?max_results=20');
-      
-      if (!filesResponse.ok) {
-        throw new Error(`Failed to fetch files: ${filesResponse.statusText}`);
-      }
-      
-      const filesData = await filesResponse.json();
-      
-      if (filesData.success) {
-        setDriveFiles(filesData.files);
-        setOpenDialog(true);
-      } else {
-        throw new Error('Failed to retrieve files');
-      }
-    } catch (error) {
-      console.error('Error calling API:', error);
-      setError(error instanceof Error ? error.message : 'Failed to connect to the API');
-      setDriveFiles([]);
-      setOpenDialog(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleContinue = async () => {
+  /** Continue button handler */
+  const handleContinue = () => {
     console.log('Continue clicked with selection:', selectedCard);
-    await fetchDriveFiles();
-  };
 
-  const handleCloseDialog = () => {
-    setOpenDialog(false);
-  };
-
-  const handleLogin = async () => {
-    try {
-      const response = await fetch('/api/auth/login');
-      const data = await response.json();
-      
-      if (data.authorization_url) {
-        // Redirect to Google OAuth
-        window.location.href = data.authorization_url;
-      }
-    } catch (error) {
-      console.error('Error initiating login:', error);
+    // ✅ Only open popup if "Local Computer" card is selected (e.g., index 0)
+    if (selectedCard === 1) {
+      setOpenPopup(true);
+    } else {
+      console.log('Popup only opens for Local Computer card');
+      // Optionally: alert('File upload is only available for Local Computer.');
     }
   };
 
-  const formatFileSize = (bytes?: string) => {
-    if (!bytes) return 'N/A';
-    const size = parseInt(bytes);
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
-    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  /** Handle file selection */
+  const handleFilesSelect = (newFiles: FileList | null) => {
+    if (!newFiles) return;
+    const fileArray = Array.from(newFiles);
+    // Avoid duplicates
+    const uniqueFiles = fileArray.filter(
+      (f) => !files.some((existing) => existing.name === f.name)
+    );
+    setFiles((prev) => [...prev, ...uniqueFiles]);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  /** Drag events */
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFilesSelect(e.dataTransfer.files);
+  };
+
+  /** Upload simulation */
+  const handleUpload = async () => {
+    if (files.length === 0) return;
+    setUploading(true);
+
+    // Simulate per-file upload delay
+    for (const f of files) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setUploadedFiles((prev) =>
+        prev.includes(f.name) ? prev : [...prev, f.name]
+      );
+      console.log('File uploaded:', f.name);
+    }
+
+    setUploading(false);
+  };
+
+  const handleClosePopup = () => {
+    setOpenPopup(false);
+    setFiles([]);
+    setUploadedFiles([]);
+    setUploading(false);
+  };
+
+  const handleLocalCompute = () => {
+    console.log('Local compute pressed with files:', uploadedFiles);
+    setOpenPopup(false);
   };
 
   return (
@@ -141,7 +112,7 @@ export default function SelectPage() {
         gap: '2rem',
       }}
     >
-      {/* Big Top Title */}
+      {/* Title */}
       <Typography
         variant="h3"
         component="h1"
@@ -150,7 +121,7 @@ export default function SelectPage() {
         Upload Your Files
       </Typography>
 
-      {/* Centered Card Selection */}
+      {/* Card Selection */}
       <SelectActionCard selectedCard={selectedCard} onSelectCard={setSelectedCard} />
 
       {/* Continue Button */}
@@ -164,84 +135,150 @@ export default function SelectPage() {
           fontWeight: 'bold',
         }}
         onClick={handleContinue}
-        disabled={selectedCard === null || loading}
+        disabled={selectedCard === null}
       >
-        {loading ? 'Loading...' : 'Continue'}
+        Continue
       </Button>
 
-      {/* Dialog to display Drive files */}
-      <Dialog 
-        open={openDialog} 
-        onClose={handleCloseDialog}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          {error ? 'Error' : 'Your Google Drive Files'}
-        </DialogTitle>
+      {/* Popup Dialog */}
+      <Dialog open={openPopup} onClose={handleClosePopup} maxWidth="md" fullWidth>
+        <DialogTitle>Upload Files</DialogTitle>
         <DialogContent>
-          {error ? (
-            <Box sx={{ textAlign: 'center', py: 2 }}>
-              <DialogContentText color="error" sx={{ mb: 2 }}>
-                {error}
-              </DialogContentText>
-              {!isAuthenticated && (
-                <Button 
-                  variant="contained" 
-                  color="primary"
-                  onClick={handleLogin}
-                >
-                  Login with Google
-                </Button>
-              )}
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              gap: 3,
+              alignItems: 'stretch',
+              mt: 2,
+            }}
+          >
+            {/* Drag-and-Drop Zone */}
+            <Box
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              sx={{
+                flex: 1,
+                border: `2px dashed ${
+                  dragOver ? theme.palette.primary.main : '#b0bec5'
+                }`,
+                borderRadius: '10px',
+                height: 220,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                backgroundColor: dragOver ? '#f0f9f4' : '#fafafa',
+                transition: 'all 0.3s ease',
+                '&:hover': { backgroundColor: '#f5f5f5' },
+              }}
+              onClick={() => document.getElementById('fileInput')?.click()}
+            >
+              <CloudUploadIcon
+                sx={{
+                  fontSize: 48,
+                  color: dragOver ? theme.palette.primary.main : '#90a4ae',
+                }}
+              />
+              <Typography variant="body1" sx={{ mt: 1, color: '#607d8b', textAlign: 'center' }}>
+                Drag & Drop your files here or click to browse
+              </Typography>
+              <input
+                id="fileInput"
+                type="file"
+                multiple
+                onChange={(e) => handleFilesSelect(e.target.files)}
+                style={{ display: 'none' }}
+              />
             </Box>
-          ) : driveFiles.length === 0 ? (
-            <DialogContentText>
-              No files found in your Google Drive.
-            </DialogContentText>
-          ) : (
-            <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
-              {driveFiles.map((file) => (
-                <ListItem 
-                  key={file.id}
-                  sx={{ 
-                    borderBottom: '1px solid #eee',
-                    '&:hover': { bgcolor: '#f5f5f5' }
-                  }}
-                >
-                  <ListItemText
-                    primary={file.name}
-                    secondary={
-                      <>
-                        <Typography component="span" variant="body2" color="text.secondary">
-                          Type: {file.mimeType.split('.').pop()}
-                        </Typography>
-                        <br />
-                        <Typography component="span" variant="body2" color="text.secondary">
-                          Size: {formatFileSize(file.size)} | Modified: {formatDate(file.modifiedTime)}
-                        </Typography>
-                      </>
-                    }
-                  />
-                  {file.webViewLink && (
-                    <Button
-                      size="small"
-                      onClick={() => window.open(file.webViewLink, '_blank')}
+
+            {/* File List */}
+            <Box
+              sx={{
+                flex: 1,
+                border: '1px solid #e0e0e0',
+                borderRadius: '10px',
+                padding: 2,
+                backgroundColor: '#f9f9f9',
+                overflowY: 'auto',
+                maxHeight: 220,
+              }}
+            >
+              <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                {files.length === 0 ? 'No Files Selected' : 'Files to Upload:'}
+              </Typography>
+
+              <List dense>
+                {files.map((f) => (
+                  <React.Fragment key={f.name}>
+                    <ListItem
+                      secondaryAction={
+                        uploadedFiles.includes(f.name) && (
+                          <CheckCircleIcon sx={{ color: '#4caf50' }} />
+                        )
+                      }
                     >
-                      View
-                    </Button>
-                  )}
-                </ListItem>
-              ))}
-            </List>
+                      <ListItemIcon>
+                        <InsertDriveFileIcon sx={{ color: '#607d8b' }} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={f.name}
+                        secondary={
+                          uploadedFiles.includes(f.name)
+                            ? 'Uploaded'
+                            : 'Pending'
+                        }
+                      />
+                    </ListItem>
+                    <Divider />
+                  </React.Fragment>
+                ))}
+              </List>
+            </Box>
+          </Box>
+
+          {/* Upload Button */}
+          {files.length > 0 && (
+            <Box sx={{ mt: 3, textAlign: 'center' }}>
+              <Button
+                variant="contained"
+                onClick={handleUpload}
+                disabled={uploading || files.length === 0}
+                sx={{
+                  backgroundColor: '#8edeab',
+                  color: '#fff',
+                  '&:hover': { backgroundColor: '#76c89b' },
+                  minWidth: 200,
+                }}
+              >
+                {uploading ? <CircularProgress size={24} color="inherit" /> : 'Upload All'}
+              </Button>
+            </Box>
           )}
         </DialogContent>
+
         <DialogActions>
-          <Button onClick={handleCloseDialog} color="primary">
-            Close
+          <Button onClick={handleClosePopup}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleLocalCompute}
+            disabled={uploadedFiles.length === 0}
+            sx={{
+              backgroundColor:
+                uploadedFiles.length > 0 ? '#8edeab' : '#ccc',
+              color: '#fff',
+              '&:hover': {
+                backgroundColor:
+                  uploadedFiles.length > 0 ? '#76c89b' : '#ccc',
+              },
+            }}
+          >
+            Local Compute
           </Button>
         </DialogActions>
       </Dialog>
-    </Box> 
+    </Box>
   );
 }
