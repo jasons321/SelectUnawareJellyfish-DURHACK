@@ -22,7 +22,6 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 
 export default function SelectPage() {
   const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
-  const [loading, setLoading] = React.useState(false);
   const [openPopup, setOpenPopup] = React.useState(false);
   const [files, setFiles] = React.useState<File[]>([]);
   const [uploadedFiles, setUploadedFiles] = React.useState<string[]>([]);
@@ -30,9 +29,17 @@ export default function SelectPage() {
   const [uploading, setUploading] = React.useState(false);
   const theme = useTheme();
 
+  /** Continue button handler */
   const handleContinue = () => {
     console.log('Continue clicked with selection:', selectedCard);
-    setOpenPopup(true);
+
+    // ✅ Only open popup if "Local Computer" card is selected (e.g., index 0)
+    if (selectedCard === 1) {
+      setOpenPopup(true);
+    } else {
+      console.log('Popup only opens for Local Computer card');
+      // Optionally: alert('File upload is only available for Local Computer.');
+    }
   };
 
   /** Handle file selection */
@@ -128,9 +135,9 @@ export default function SelectPage() {
           fontWeight: 'bold',
         }}
         onClick={handleContinue}
-        disabled={selectedCard === null || loading}
+        disabled={selectedCard === null}
       >
-        {loading ? 'Loading...' : 'Continue'}
+        Continue
       </Button>
 
       {/* Popup Dialog */}
