@@ -116,32 +116,6 @@ const loadGooglePickerAPI = (): Promise<void> => {
   });
 };
 
-/**
- * GoogleImagePicker Component
- * 
- * A modular component that handles Google authentication and allows users
- * to pick image files from Google Drive using the Google Picker API.
- * 
- * Features:
- * - Automatic authentication flow
- * - Only requests permissions if not already granted
- * - Filters for image files only
- * - Supports folder selection (downloads all images in folder)
- * - Downloads files to frontend as Blobs
- * 
- * @example
- * ```tsx
- * <GoogleImagePicker 
- *   onFilesSelected={(result) => {
- *     console.log('Files:', result.files);
- *     console.log('Blobs:', result.blobs);
- *   }}
- *   maxFiles={10}
- * >
- *   <button>Select Images from Google Drive</button>
- * </GoogleImagePicker>
- * ```
- */
 export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
   onFilesSelected,
   onError,
