@@ -5,6 +5,7 @@ import os
 import json
 import concurrent.futures
 from PIL import Image, ExifTags
+from google.genai.types import File
 from pillow_heif import register_heif_opener
 import piexif
 
@@ -36,6 +37,12 @@ class DataLoader:
         self.images: list[ImageContainer] = []
 
     def load_images(self):
+        """
+        Returns
+        -------
+        List[ImageContainer]
+            A list of ImageContainers containing the Image object and EXIF dictionary associated with every image in the folder_path (including subdirectories)
+        """
         accepted_formats = ('heic', 'jpeg', 'jpg', 'png')
         for root, _, files in os.walk(self.folder_path):
             for name in files:
@@ -71,10 +78,34 @@ class ImageProcessor:
 
 
     def gemini_inference(self, images: List[ImageContainer]) -> List[ImageContainer]|None:
-        """Uploads all images to Gemini, and then performs inference on them in one big batch"""
+        """
+        Uploads all images to Gemini, and then performs inference on them in one big batch
 
-        def upload_single_file(img_cont: ImageContainer):
-            """Uploads a single file and returns the uploaded File object."""
+        Parameters
+        ----------
+        images : List[ImageContainer]
+            A list of ImageContainer objects for each image you want to perform inference on
+
+        Return
+        ------
+        List[ImageContainer] | None
+            The same list of ImageContainer objects, but with updated gemini_response fields, or None if Gemini fails
+        """
+
+        def upload_single_file(img_cont: ImageContainer) -> File|None:
+            """
+            Uploads a single file and returns the uploaded File object.
+
+            Parameters
+            ----------
+            img_cont: ImageContainer
+                An ImageContainer object for the image to be uploaded
+
+            Return
+            ------
+            File | None
+                A File object for the uploaded image, or None if uploading fails
+            """
             filepath = img_cont.filepath
             print(f"Uploading {filepath}...")
             try:
@@ -116,7 +147,17 @@ class ImageProcessor:
             return None
 
     def update_image_data(self, image_container: ImageContainer):
-        """Updates the metadata and file name of a single image"""
+        """
+        Updates the metadata and file name of a single image
+
+        Parameters
+        ----------
+        image_container: ImageContainer
+            An ImageContainer object for the image to update
+        
+        Currently saves the new image to disk
+        TODO: Integrate this properly!!!
+        """
         folderpath = os.path.split(image_container.filepath)[0]
         new_filepath = folderpath + '/' + image_container.gemini_response['name']
         image_container.exif_dict[IMAGE_DESCRIPTION_TAG] = image_container.gemini_response['description'].encode('utf-8')
@@ -136,9 +177,9 @@ class ImageProcessor:
 
 def main():
     image_folder = "/home/alexander/Pictures/"
+    processor = ImageProcessor()
     images = DataLoader(image_folder).load_images()
     if images is not None:
-        processor = ImageProcessor()
         images = processor.gemini_inference(images)
     if images is not None:
         for image in images:
