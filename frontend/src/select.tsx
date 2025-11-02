@@ -20,6 +20,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import { useNavigate } from 'react-router-dom';
 import { GoogleImagePicker, type GoogleImagePickerResult } from './GoogleDriveHandler';
+import { OneDriveImagePicker, type OneDrivePickerResult } from './OneDriveHandler';
 
 export default function SelectPage() {
   // Restore selected card from sessionStorage after OAuth redirect
@@ -36,6 +37,7 @@ export default function SelectPage() {
   const [computing, setComputing] = React.useState(false);
 
   const [isGoogleDriveProcessing, setIsGoogleDriveProcessing] = React.useState(false);
+  const [isOneDriveProcessing, setIsOneDriveProcessing] = React.useState(false);
   const navigate = useNavigate();
 
   // Save selected card to sessionStorage whenever it changes
@@ -45,13 +47,14 @@ export default function SelectPage() {
     }
   }, [selectedCard]);
 
-  // Check if we just returned from OAuth with Google Drive selected
+  // Check if we just returned from OAuth with Google Drive or OneDrive selected
   React.useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const authenticated = urlParams.get('authenticated');
-    const pickerPending = sessionStorage.getItem('google_picker_pending');
+    const googlePickerPending = sessionStorage.getItem('google_picker_pending');
+    const onedrivePickerPending = sessionStorage.getItem('onedrive_picker_pending');
     
-    if (authenticated === 'true' && pickerPending === 'true' && selectedCard === 2) {
+    if (authenticated === 'true' && (googlePickerPending === 'true' || onedrivePickerPending === 'true')) {
       // Auto-click the continue button after OAuth
       console.log('Auto-triggering Continue button after OAuth');
       setTimeout(() => {
@@ -70,6 +73,8 @@ export default function SelectPage() {
       setOpenPopup(true);
     } else if (selectedCard === 2) {
       console.log('Google Drive flow will be initiated');
+    } else if (selectedCard === 3) {
+      console.log('OneDrive flow will be initiated');
     } else {
       console.log('No valid selection');
     }
@@ -130,10 +135,71 @@ export default function SelectPage() {
     }
   };
 
+  const handleOneDriveFilesSelected = async (result: OneDrivePickerResult) => {
+    console.log('OneDrive files selected:', result.files);
+    setIsOneDriveProcessing(true);
+
+    try {
+      const fileArray: File[] = [];
+      
+      for (const pickedFile of result.files) {
+        const blob = result.blobs.get(pickedFile.id);
+        if (blob) {
+          const file = new File([blob], pickedFile.name, {
+            type: pickedFile.mimeType,
+          });
+          fileArray.push(file);
+        }
+      }
+
+      console.log(`Converted ${fileArray.length} files from OneDrive`);
+
+      const formData = new FormData();
+      fileArray.forEach((file) => formData.append('images', file));
+
+      const response = await fetch('http://localhost:8001/api/compute/phash-group', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Server error');
+
+      const resultData = await response.json();
+
+      console.log('pHash groups:', resultData.groups);
+
+      // Clear the selection from sessionStorage
+      sessionStorage.removeItem('selected_card');
+
+      const filesMap: Record<string, string> = {};
+      for (const file of fileArray) {
+        filesMap[file.name] = URL.createObjectURL(file); 
+      }
+
+      navigate('/results', {
+        state: {
+          groups: resultData.groups,
+          filesMap: filesMap,
+        },
+      });
+    } catch (err) {
+      console.error('Error processing OneDrive images:', err);
+      alert('Failed to process OneDrive images. Please try again.');
+    } finally {
+      setIsOneDriveProcessing(false);
+    }
+  };
+
   const handleGoogleDriveError = (error: Error) => {
     console.error('Google Drive error:', error);
     alert(`Google Drive error: ${error.message}`);
     setIsGoogleDriveProcessing(false);
+  };
+
+  const handleOneDriveError = (error: Error) => {
+    console.error('OneDrive error:', error);
+    alert(`OneDrive error: ${error.message}`);
+    setIsOneDriveProcessing(false);
   };
 
   const handleFilesSelect = (newFiles: FileList | null) => {
@@ -249,81 +315,104 @@ export default function SelectPage() {
         },
       }}
     >
-      <Typography
-        variant="h3"
-        component="h1"
-        sx={{
-          fontWeight: "bold",
-          color: "#b2ffb2",
-          textAlign: "center",
-          textShadow: "0 0 10px rgba(178,255,178,0.6)",
-        }}
-      >
-        Upload Your Files
-      </Typography>
-
       <Box
         sx={{
-          backdropFilter: "blur(15px)",
-          backgroundColor: "rgba(255,255,255,0.1)",
-          border: "1px solid rgba(255,255,255,0.2)",
-          borderRadius: "16px",
-          padding: "2rem",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-          width: { xs: "90%", sm: "70%", md: "50%" },
+          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.5rem",
         }}
       >
-        <Box
+        <Typography
+          variant="h3"
           sx={{
-            display: "flex",
-            justifyContent: "center", // Center the card horizontally
-            width: "100%", // Take up full container width
+            fontWeight: "bold",
+            background: "linear-gradient(90deg, #b2ffb2, #8edeab, #6ee7b7)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            textShadow: "0px 0px 20px rgba(178,255,178,0.3)",
           }}
         >
-          <SelectActionCard
-            selectedCard={selectedCard}
-            onSelectCard={setSelectedCard}
-          />
-        </Box>
+          Image Duplicate Detection
+        </Typography>
 
-        <Box textAlign="center" mt={3}>
-          
-                {selectedCard === 2 ? (
-        <GoogleImagePicker
-          onFilesSelected={handleGoogleDriveFilesSelected}
-          onError={handleGoogleDriveError}
-          maxFiles={50}
+        <Typography
+          variant="body1"
+          sx={{ color: "rgba(255,255,255,0.7)", fontSize: "1rem" }}
         >
-          <Button
-            data-continue-button
-            variant="contained"
-            sx={{
-              background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
-              color: "#fff",
-              fontWeight: "bold",
-              paddingX: 4,
-              paddingY: 1.2,
-              borderRadius: "30px",
-              boxShadow: "0px 0px 10px rgba(110,231,183,0.5)",
-              "&:hover": {
-                background: "linear-gradient(45deg, #57cc99, #2fa88a)",
-                boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
-              },
-            }}
-            disabled={isGoogleDriveProcessing}
-          >
-            {isGoogleDriveProcessing ? (
-              <>
-                <CircularProgress size={20} sx={{ mr: 1, color: '#fff' }} />
-                Processing...
-              </>
-            ) : (
-              'Continue'
-            )}
-          </Button>
-        </GoogleImagePicker>
-      ) :
+          Choose a method to upload your images
+        </Typography>
+      </Box>
 
+      <SelectActionCard
+        selectedCard={selectedCard}
+        onSelectCard={setSelectedCard}
+      />
+
+      <Box sx={{ textAlign: "center" }}>
+        {selectedCard === 2 ? (
+          <GoogleImagePicker
+            onFilesSelected={handleGoogleDriveFilesSelected}
+            onError={handleGoogleDriveError}
+            maxFiles={50}
+          >
+            <Button
+              data-continue-button
+              variant="contained"
+              sx={{
+                background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
+                color: "#fff",
+                fontWeight: "bold",
+                paddingX: 4,
+                paddingY: 1.2,
+                borderRadius: "30px",
+                boxShadow: "0px 0px 10px rgba(110,231,183,0.5)",
+                "&:hover": {
+                  background: "linear-gradient(45deg, #57cc99, #2fa88a)",
+                  boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
+                },
+              }}
+              disabled={selectedCard === null || isGoogleDriveProcessing}
+            >
+              {isGoogleDriveProcessing ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                'Continue'
+              )}
+            </Button>
+          </GoogleImagePicker>
+        ) : selectedCard === 3 ? (
+          <OneDriveImagePicker
+            onFilesSelected={handleOneDriveFilesSelected}
+            onError={handleOneDriveError}
+            maxFiles={50}
+          >
+            <Button
+              data-continue-button
+              variant="contained"
+              sx={{
+                background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
+                color: "#fff",
+                fontWeight: "bold",
+                paddingX: 4,
+                paddingY: 1.2,
+                borderRadius: "30px",
+                boxShadow: "0px 0px 10px rgba(110,231,183,0.5)",
+                "&:hover": {
+                  background: "linear-gradient(45deg, #57cc99, #2fa88a)",
+                  boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
+                },
+              }}
+              disabled={selectedCard === null || isOneDriveProcessing}
+            >
+              {isOneDriveProcessing ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                'Continue'
+              )}
+            </Button>
+          </OneDriveImagePicker>
+        ) : (
           <Button
             variant="contained"
             sx={{
@@ -344,8 +433,7 @@ export default function SelectPage() {
           >
             Continue
           </Button>
-          }
-        </Box>
+        )}
       </Box>
 
       {/* Darker Glass Dialog */}
@@ -357,7 +445,7 @@ export default function SelectPage() {
         PaperProps={{
           sx: {
             backdropFilter: "blur(25px)",
-            backgroundColor: "rgba(20,20,20,0.85)", // 👈 Darker background
+            backgroundColor: "rgba(20,20,20,0.85)",
             border: "1px solid rgba(255,255,255,0.15)",
             boxShadow: "0 8px 32px rgba(0,0,0,0.8)",
             color: "#fff",
@@ -416,7 +504,7 @@ export default function SelectPage() {
                 cursor: "pointer",
                 background: dragOver
                   ? "rgba(142,222,171,0.15)"
-                  : "rgba(40,40,40,0.6)", // 👈 Darker for better contrast
+                  : "rgba(40,40,40,0.6)",
                 transition: "all 0.3s ease",
                 "&:hover": { background: "rgba(60,60,60,0.7)" },
               }}
@@ -436,69 +524,69 @@ export default function SelectPage() {
                 style={{ display: "none" }}
               />
             </Box>
-    </Box>
-<Box
-  sx={{
-    flex: 1,
-    border: "1px solid rgba(255,255,255,0.2)",
-    borderRadius: "10px",
-    padding: 2,
-    backgroundColor: "rgba(35,35,35,0.7)", // Darker list background
-    overflowY: "auto", // Enable scrolling if content overflows
-    maxHeight: 200,
-    "&::-webkit-scrollbar": {
-      width: "8px", // Custom width
-    },
-    "&::-webkit-scrollbar-thumb": {
-      background: "linear-gradient(45deg, #6ee7b7, #3caea3)", // Gradient thumb
-      borderRadius: "10px", // Rounded thumb
-      border: "2px solid rgba(255, 255, 255, 0.1)", // Subtle border
-    },
-    "&::-webkit-scrollbar-thumb:hover": {
-      background: "linear-gradient(45deg, #57cc99, #2fa88a)", // Darker thumb on hover
-    },
-    "&::-webkit-scrollbar-track": {
-      background: "rgba(255, 255, 255, 0.1)", // Track background
-      borderRadius: "10px", // Rounded track
-    },
-    "&::-webkit-scrollbar-track:hover": {
-      background: "rgba(255, 255, 255, 0.2)", // Hover effect on track
-    },
-  }}
->
-    <Typography
-        variant="subtitle1"
-        sx={{ fontWeight: "bold", mb: 1, color: "#b2ffb2" }}
-    >
-        {files.length === 0 ? "No Files Selected" : "Files to Upload:"}
-    </Typography>
 
-    <List dense>
-        {files.map((f) => (
-        <React.Fragment key={f.name}>
-            <ListItem
-            secondaryAction={
-                uploadedFiles.includes(f.name) && (
-                <CheckCircleIcon sx={{ color: "#8edeab" }} />
-                )
-            }
+            <Box
+              sx={{
+                flex: 1,
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: "10px",
+                padding: 2,
+                backgroundColor: "rgba(35,35,35,0.7)",
+                overflowY: "auto",
+                maxHeight: 200,
+                "&::-webkit-scrollbar": {
+                  width: "8px",
+                },
+                "&::-webkit-scrollbar-thumb": {
+                  background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
+                  borderRadius: "10px",
+                  border: "2px solid rgba(255, 255, 255, 0.1)",
+                },
+                "&::-webkit-scrollbar-thumb:hover": {
+                  background: "linear-gradient(45deg, #57cc99, #2fa88a)",
+                },
+                "&::-webkit-scrollbar-track": {
+                  background: "rgba(255, 255, 255, 0.1)",
+                  borderRadius: "10px",
+                },
+                "&::-webkit-scrollbar-track:hover": {
+                  background: "rgba(255, 255, 255, 0.2)",
+                },
+              }}
             >
-            <ListItemIcon>
-                <InsertDriveFileIcon sx={{ color: "#b0bec5" }} />
-            </ListItemIcon>
-            <ListItemText
-                primary={f.name}
-                secondary={
-                uploadedFiles.includes(f.name) ? "Uploaded" : "Pending"
-                }
-            />
-            </ListItem>
-            <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
-        </React.Fragment>
-        ))}
-    </List>
-    </Box>
+              <Typography
+                variant="subtitle1"
+                sx={{ fontWeight: "bold", mb: 1, color: "#b2ffb2" }}
+              >
+                {files.length === 0 ? "No Files Selected" : "Files to Upload:"}
+              </Typography>
 
+              <List dense>
+                {files.map((f) => (
+                  <React.Fragment key={f.name}>
+                    <ListItem
+                      secondaryAction={
+                        uploadedFiles.includes(f.name) && (
+                          <CheckCircleIcon sx={{ color: "#8edeab" }} />
+                        )
+                      }
+                    >
+                      <ListItemIcon>
+                        <InsertDriveFileIcon sx={{ color: "#b0bec5" }} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={f.name}
+                        secondary={
+                          uploadedFiles.includes(f.name) ? "Uploaded" : "Pending"
+                        }
+                      />
+                    </ListItem>
+                    <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+                  </React.Fragment>
+                ))}
+              </List>
+            </Box>
+          </Box>
 
           {files.length > 0 && (
             <Box sx={{ mt: 3, textAlign: "center" }}>

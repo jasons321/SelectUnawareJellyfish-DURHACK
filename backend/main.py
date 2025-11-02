@@ -12,10 +12,11 @@ import secrets
 from typing import Dict, List
 from PIL import Image
 import imagehash
-import io
 from collections import defaultdict
 import json
 import io
+import msal
+import httpx
 
 # Create FastAPI instance
 app = FastAPI(
@@ -33,7 +34,20 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive.metadata.readonly'
 ]
 
+ONEDRIVE_SCOPES = [
+    'Files.Read',
+    'Files.Read.All',
+    'User.Read'
+]
+
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'NO_API_KEY')
+MICROSOFT_CLIENT_ID = os.getenv('MICROSOFT_CLIENT_ID', 'YOUR_CLIENT_ID')
+MICROSOFT_CLIENT_SECRET = os.getenv('MICROSOFT_CLIENT_SECRET', 'YOUR_CLIENT_SECRET')
+MICROSOFT_REDIRECT_URI = os.getenv('MICROSOFT_REDIRECT_URI', 'http://localhost:8001/api/auth/onedrive/callback')
+
+AUTHORITY = 'https://login.microsoftonline.com/common'
+
+onedrive_sessions: Dict[str, dict] = {}
 
 sessions: Dict[str, dict] = {}
 
@@ -72,6 +86,50 @@ def update_session_token(session_id: str, credentials: Credentials):
     """Update session with refreshed token if changed"""
     if credentials.token != sessions[session_id]["credentials"]["token"]:
         sessions[session_id]["credentials"]["token"] = credentials.token
+
+def create_msal_app():
+    """Create MSAL confidential client application"""
+    return msal.ConfidentialClientApplication(
+        MICROSOFT_CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=MICROSOFT_CLIENT_SECRET
+    )
+
+def get_onedrive_credentials(session_id: str) -> dict:
+    """Get OneDrive credentials from session"""
+    if not session_id or session_id not in onedrive_sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated with OneDrive")
+    return onedrive_sessions[session_id]
+
+async def refresh_access_token(session_id: str) -> str:
+    """Refresh OneDrive access token if expired"""
+    if session_id not in onedrive_sessions:
+        raise HTTPException(status_code=401, detail="Session not found")
+    
+    session = onedrive_sessions[session_id]
+    
+    # Check if we have a refresh token
+    if 'refresh_token' not in session:
+        raise HTTPException(status_code=401, detail="No refresh token available")
+    
+    app = create_msal_app()
+    
+    result = app.acquire_token_by_refresh_token(
+        session['refresh_token'],
+        scopes=ONEDRIVE_SCOPES
+    )
+    
+    if 'access_token' in result:
+        # Update session with new tokens
+        onedrive_sessions[session_id].update({
+            'access_token': result['access_token'],
+            'refresh_token': result.get('refresh_token', session['refresh_token']),
+            'expires_in': result.get('expires_in', 3600)
+        })
+        return result['access_token']
+    else:
+        raise HTTPException(status_code=401, detail="Failed to refresh token")
+
 
 @app.get("/api")
 async def root():
@@ -428,6 +486,277 @@ async def get_folder_images(folder_id: str, request: Request):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting folder images: {str(e)}")
+    
+@app.get("/api/auth/onedrive/status")
+async def onedrive_auth_status(request: Request):
+    """Check if user is authenticated with OneDrive"""
+    session_id = request.cookies.get("onedrive_session_id")
+    
+    if session_id and session_id in onedrive_sessions:
+        return {"authenticated": True}
+    
+    return {"authenticated": False}
+
+@app.get("/api/auth/onedrive/login")
+async def onedrive_login(request: Request):
+    """Initiate OneDrive OAuth flow"""
+    try:
+        app_client = create_msal_app()
+        
+        # Generate state for CSRF protection
+        state = secrets.token_urlsafe(32)
+        
+        # Build authorization URL
+        auth_url = app_client.get_authorization_request_url(
+            scopes=ONEDRIVE_SCOPES,
+            state=state,
+            redirect_uri=MICROSOFT_REDIRECT_URI
+        )
+        
+        # Store state temporarily
+        onedrive_sessions[f"state_{state}"] = {"state": state}
+        
+        return {"authorization_url": auth_url}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error initiating OneDrive OAuth: {str(e)}")
+
+@app.get("/api/auth/onedrive/callback")
+async def onedrive_callback(request: Request):
+    """Handle OneDrive OAuth callback"""
+    try:
+        # Get authorization code and state from callback
+        code = request.query_params.get('code')
+        state = request.query_params.get('state')
+        error = request.query_params.get('error')
+        
+        if error:
+            raise HTTPException(status_code=400, detail=f"OAuth error: {error}")
+        
+        if not code or not state:
+            raise HTTPException(status_code=400, detail="Missing code or state parameter")
+        
+        # Verify state exists
+        if f"state_{state}" not in onedrive_sessions:
+            raise HTTPException(status_code=400, detail="Invalid state parameter")
+        
+        # Exchange code for token
+        app_client = create_msal_app()
+        
+        result = app_client.acquire_token_by_authorization_code(
+            code,
+            scopes=ONEDRIVE_SCOPES,
+            redirect_uri=MICROSOFT_REDIRECT_URI
+        )
+        
+        if 'access_token' not in result:
+            error_desc = result.get('error_description', 'Unknown error')
+            raise HTTPException(status_code=400, detail=f"Token exchange failed: {error_desc}")
+        
+        # Create session
+        session_id = secrets.token_urlsafe(32)
+        onedrive_sessions[session_id] = {
+            'access_token': result['access_token'],
+            'refresh_token': result.get('refresh_token'),
+            'expires_in': result.get('expires_in', 3600),
+            'token_type': result.get('token_type', 'Bearer')
+        }
+        
+        # Clean up state session
+        del onedrive_sessions[f"state_{state}"]
+        
+        # Redirect to frontend with session cookie
+        response = RedirectResponse(url="/?authenticated=true")
+        response.set_cookie(
+            key="onedrive_session_id",
+            value=session_id,
+            httponly=True,
+            max_age=3600 * 24 * 7,  # 7 days
+            samesite="lax"
+        )
+        
+        return response
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OneDrive OAuth callback error: {str(e)}")
+
+@app.get("/api/auth/onedrive/logout")
+async def onedrive_logout(request: Request):
+    """Logout from OneDrive"""
+    session_id = request.cookies.get("onedrive_session_id")
+    
+    if session_id and session_id in onedrive_sessions:
+        del onedrive_sessions[session_id]
+    
+    response = JSONResponse({"message": "Logged out from OneDrive successfully"})
+    response.delete_cookie("onedrive_session_id")
+    
+    return response
+
+@app.get("/api/auth/onedrive/picker-token")
+async def get_onedrive_picker_token(request: Request):
+    """Get access token for OneDrive Picker"""
+    session_id = request.cookies.get("onedrive_session_id")
+    
+    if not session_id or session_id not in onedrive_sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated with OneDrive")
+    
+    try:
+        credentials = get_onedrive_credentials(session_id)
+        
+        # TODO: Implement token expiry check and refresh if needed
+        # For now, return the current token
+        
+        return {
+            "access_token": credentials['access_token'],
+            "token_type": credentials.get('token_type', 'Bearer')
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting OneDrive token: {str(e)}")
+    
+@app.get("/api/auth/onedrive/client-id")
+async def get_onedrive_client_id():
+    """Get Microsoft Client ID for OneDrive Picker"""
+    return {"client_id": MICROSOFT_CLIENT_ID}
+
+@app.get("/api/onedrive/download/{file_id}")
+async def download_onedrive_file(file_id: str, request: Request):
+    """Download a file from OneDrive"""
+    session_id = request.cookies.get("onedrive_session_id")
+    
+    if not session_id or session_id not in onedrive_sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated with OneDrive")
+    
+    try:
+        credentials = get_onedrive_credentials(session_id)
+        access_token = credentials['access_token']
+        
+        # Get file download URL from Microsoft Graph API
+        async with httpx.AsyncClient() as client:
+            # First, get file metadata
+            headers = {
+                'Authorization': f'Bearer {access_token}'
+            }
+            
+            graph_url = f'https://graph.microsoft.com/v1.0/me/drive/items/{file_id}'
+            response = await client.get(graph_url, headers=headers)
+            
+            if response.status_code == 401:
+                # Token might be expired, try to refresh
+                access_token = await refresh_access_token(session_id)
+                headers['Authorization'] = f'Bearer {access_token}'
+                response = await client.get(graph_url, headers=headers)
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to get file metadata: {response.text}"
+                )
+            
+            file_data = response.json()
+            
+            # Get download URL
+            download_url = file_data.get('@microsoft.graph.downloadUrl')
+            if not download_url:
+                raise HTTPException(status_code=404, detail="Download URL not found")
+            
+            # Download the file
+            file_response = await client.get(download_url)
+            
+            if file_response.status_code != 200:
+                raise HTTPException(
+                    status_code=file_response.status_code,
+                    detail="Failed to download file"
+                )
+            
+            # Return file as streaming response
+            return StreamingResponse(
+                io.BytesIO(file_response.content),
+                media_type=file_data.get('file', {}).get('mimeType', 'application/octet-stream'),
+                headers={
+                    'Content-Disposition': f'attachment; filename="{file_data.get("name", "file")}"'
+                }
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading OneDrive file: {str(e)}")
+
+@app.get("/api/onedrive/folder-images/{folder_id}")
+async def get_onedrive_folder_images(folder_id: str, request: Request):
+    """Get all image files from a OneDrive folder (recursively)"""
+    session_id = request.cookies.get("onedrive_session_id")
+    
+    if not session_id or session_id not in onedrive_sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated with OneDrive")
+    
+    try:
+        credentials = get_onedrive_credentials(session_id)
+        access_token = credentials['access_token']
+        
+        async def get_images_recursive(folder_id: str, client: httpx.AsyncClient) -> list:
+            """Recursively get all images from folder and subfolders"""
+            images = []
+            
+            headers = {
+                'Authorization': f'Bearer {access_token}'
+            }
+            
+            # Get folder contents
+            graph_url = f'https://graph.microsoft.com/v1.0/me/drive/items/{folder_id}/children'
+            response = await client.get(graph_url, headers=headers)
+            
+            if response.status_code == 401:
+                # Token might be expired, try to refresh
+                new_token = await refresh_access_token(session_id)
+                headers['Authorization'] = f'Bearer {new_token}'
+                response = await client.get(graph_url, headers=headers)
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to get folder contents: {response.text}"
+                )
+            
+            items = response.json().get('value', [])
+            
+            for item in items:
+                # If it's a folder, recurse into it
+                if 'folder' in item:
+                    sub_images = await get_images_recursive(item['id'], client)
+                    images.extend(sub_images)
+                
+                # If it's an image file
+                elif 'file' in item:
+                    mime_type = item.get('file', {}).get('mimeType', '')
+                    if mime_type.startswith('image/'):
+                        images.append({
+                            'id': item['id'],
+                            'name': item['name'],
+                            'mimeType': mime_type,
+                            'url': item.get('webUrl'),
+                            'thumbnailUrl': item.get('thumbnails', [{}])[0].get('large', {}).get('url') if item.get('thumbnails') else None,
+                            'sizeBytes': item.get('size')
+                        })
+            
+            return images
+        
+        # Get all images from folder
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            images = await get_images_recursive(folder_id, client)
+        
+        return {
+            "success": True,
+            "files": images,
+            "count": len(images)
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting OneDrive folder images: {str(e)}")
 
 # Serve React App (catch-all route for SPA)
 @app.get("/{full_path:path}")
