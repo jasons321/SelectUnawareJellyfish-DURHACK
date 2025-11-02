@@ -8,6 +8,7 @@ from PIL import Image, ExifTags
 from google.genai.types import File
 from pillow_heif import register_heif_opener
 import piexif
+import subprocess
 
 
 # EXIF tag for 'ImageDescription' is 270
@@ -17,17 +18,12 @@ IMAGE_DESCRIPTION_TAG = 270
 @dataclass(slots=True)
 class ImageContainer:
     """ A data container for image data """
-
     filepath: str
     img: Image.Image
     exif_dict: Dict[int, Any] | Image.Exif
     gemini_response : Dict[str, Any] = field(default_factory=dict)
 
-# class GeminiOutput(BaseModel):
-#     """Schema for Gemini's structured output."""
-#     tags: list[str] = Field(description="A list of five one-word tags")
-#     description: str = Field(description="A single short sentence summarising the image content.")
-#     filename: str = Field(description="A two to three word underscore-separated filename")
+
 
 class DataLoader:
     """ Loads in the image data and stores it and the metadata """
@@ -68,6 +64,7 @@ class DataLoader:
         
 
 class ImageProcessor:
+    """ A class for managing image processing functions """
 
     def __init__(self) -> None:
         # Register the opener once at the start of your application
@@ -75,7 +72,6 @@ class ImageProcessor:
 
         # Start the Gemini client
         self.client = genai.Client()
-
 
     def gemini_inference(self, images: List[ImageContainer]) -> List[ImageContainer]|None:
         """
@@ -125,7 +121,7 @@ class ImageProcessor:
         uploaded_images = [f for f in uploaded_images if f is not None]
 
         # Send prompt
-        prompt = "Generate 3 one word tags, a short description sentence, and a filename consisting of 2 words in snake case (for example this_photo.jpg) followed by the file extension for each photo passed. Please return the results for each photo in JSON format with the fields 'name' for the filename 'tags' for the tags, and 'description' for the description. Output the analysis as a single JSON object. DO NOT include any markdown ```json tags"
+        prompt = "Generate 3 one word tags, a short description sentence, and a filename consisting of 2 words in snake case (for example this_photo.jpg) followed by the file extension for each photo passed. Please return the results for each photo in JSON format with the fields 'name' for the filename 'tags' for the tags, and 'description' for the description. Output the analysis as a single JSON object. DO NOT include any markdown ```json tags. If two pictures are the same, still include JSON data for them, do not just omit it."
         contents = [image for image in uploaded_images]
         contents.append(prompt) # pyright: ignore - pure nonsense error
         response = self.client.models.generate_content(
@@ -137,42 +133,49 @@ class ImageProcessor:
         )
         try:
             # response.text is guaranteed to be valid JSON due to the config
+            print(response.text)
             resp_dict = json.loads(response.text) # pyright: ignore - pure nonsense error
             # Assign gemini data to each image container object for use later
-            for i, img in enumerate(images):
-                img.gemini_response = resp_dict[i]
+            for i, resp in enumerate(resp_dict):
+                images[i].gemini_response = resp
             return images
         except json.JSONDecodeError as e:
             print(f"Error parsing JSON: {e}")
             return None
 
-    def update_image_data(self, image_container: ImageContainer):
+    def save_updated_image(self, image_container: ImageContainer) -> None:
         """
-        Updates the metadata and file name of a single image
+        Updates the metadata and file name of a single image, saving it to disk
 
         Parameters
         ----------
         image_container: ImageContainer
             An ImageContainer object for the image to update
-        
-        Currently saves the new image to disk
-        TODO: Integrate this properly!!!
         """
         folderpath = os.path.split(image_container.filepath)[0]
         new_filepath = folderpath + '/' + image_container.gemini_response['name']
-        image_container.exif_dict[IMAGE_DESCRIPTION_TAG] = image_container.gemini_response['description'].encode('utf-8')
 
-        updated_exif_bytes = piexif.dump(image_container.exif_dict)
-        
-        # 2. Determine the save format
-        save_format = 'HEIC' if image_container.img.format in ('HEIF', 'HEIC') else image_container.img.format
-        
-        # 3. Save the image, passing the updated EXIF bytes to the 'exif' argument
-        image_container.img.save(
-            new_filepath, 
-            format=save_format, 
-            exif=updated_exif_bytes
-        )
+        # Now update the EXIF, XMP, and IPTC metadata 
+        tag_string = ", ".join(image_container.gemini_response['tags'])
+        # -sep ',': Sets the separator for keywords to a comma
+        # -XMP:Subject+=: add to the list without overwriting existing tags
+        # -overwrite_original: Saves changes directly to the original file
+        command_list = [
+            'exiftool', 
+            '-sep', ',', 
+            f'-EXIF:ImageDescription={image_container.gemini_response["description"]}',
+            f'-XMP:Subject+={tag_string}', 
+            f'-IPTC:Keywords+={tag_string}', # Also add to IPTC for maximum compatibility
+            f'-filename={new_filepath}', 
+            image_container.filepath
+        ]
+
+        try:
+            subprocess.run(command_list, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error during XMP write: {e.stderr}")
+        except FileNotFoundError:
+            print("Error: ExifTool not found.")
 
 
 def main():
@@ -184,8 +187,7 @@ def main():
     if images is not None:
         for image in images:
             print(f"Original name: {image.filepath}\nNew name: {image.gemini_response['name']}, tags: {image.gemini_response['tags']}, desc: {image.gemini_response['description']}")
-            processor.update_image_data(image)
-        
+            processor.save_updated_image(image)
 
 
 if __name__ == "__main__":
