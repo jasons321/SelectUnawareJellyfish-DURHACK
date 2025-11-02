@@ -1,187 +1,161 @@
-import { useLocation, useNavigate } from 'react-router-dom';
-import {
-  Box,
-  Typography,
-  Card,
-  CardMedia,
-  CardContent,
-  Button,
-  Divider,
-} from '@mui/material';
-
-interface UploadedFile {
-  name: string;
-  url: string;
-}
+import { useLocation } from "react-router-dom";
+import { Box, Typography, Button } from "@mui/material";
+import React from "react";
 
 export default function ResultsPage() {
   const location = useLocation();
-  const navigate = useNavigate();
 
-  // ✅ Properly type the expected route state
-  const { groups, files } = (location.state || {}) as {
+  const { groups, filesMap } = location.state as {
     groups: string[][];
-    files: UploadedFile[];
+    filesMap: Record<string, string>;
   };
 
-  if (!groups || !files) {
-    return (
-      <Box
-        sx={{
-          height: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-      >
-        <Typography variant="h5" color="text.secondary">
-          No data available. Please upload images first.
-        </Typography>
-        <Button
-          variant="contained"
-          sx={{
-            mt: 3,
-            backgroundColor: '#8edeab',
-            '&:hover': { backgroundColor: '#76c89b' },
-          }}
-          onClick={() => navigate('/')}
-        >
-          Go Back
-        </Button>
-      </Box>
-    );
-  }
-
-  // ✅ Strongly typed mapping from filenames to URLs
-  const fileMap: Record<string, string> = Object.fromEntries(
-    files.map((f: UploadedFile) => [f.name, f.url])
+  const [selectedGroups, setSelectedGroups] = React.useState<boolean[]>(
+    () => groups.map(() => true)
   );
+
+  const toggleGroupSelection = (groupIndex: number) => {
+    setSelectedGroups((prev) =>
+      prev.map((val, idx) => (idx === groupIndex ? !val : val))
+    );
+  };
 
   return (
     <Box
       sx={{
-        width: '100vw',
-        minHeight: '100vh',
-        backgroundColor: '#f5f5f5',
-        padding: '2rem',
+        width: "100vw",
+        minHeight: "100vh",
+        p: 4,
+        background:
+          "linear-gradient(-45deg, #0f2027, #203a43, #2c5364, #184e68)",
+        backgroundSize: "400% 400%",
+        animation: "gradientShift 12s ease infinite",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        color: "#fff",
+        "@keyframes gradientShift": {
+          "0%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+          "100%": { backgroundPosition: "0% 50%" },
+        },
       }}
     >
-      {/* Title */}
       <Typography
         variant="h4"
         sx={{
-          mb: 3,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          color: '#283b4a',
+          fontWeight: "bold",
+          color: "#b2ffb2",
+          textAlign: "center",
+          mb: 4,
+          textShadow: "0 0 10px rgba(178,255,178,0.6)",
         }}
       >
-        Grouped Similar Images
+        Confirm Duplicate Image Groups
       </Typography>
 
-      {/* Render Each Group */}
-      {groups.map((groupData: string[], groupIdx: number) => {
-        const groupKey = groupData.join('-');
-
-        return (
-          <Card
-            key={groupKey}
+      <Box
+        sx={{
+          width: { xs: "95%", sm: "85%", md: "70%" },
+          backdropFilter: "blur(15px)",
+          backgroundColor: "rgba(20,20,20,0.8)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: "16px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          p: 3,
+          display: "flex",
+          flexDirection: "column",
+          gap: 3,
+        }}
+      >
+        {groups.map((group, groupIndex) => (
+          <Box
+            key={`group-${groupIndex}`}
+            onClick={() => toggleGroupSelection(groupIndex)}
             sx={{
-              mb: 4,
-              border: '2px solid #8edeab',
-              borderRadius: '12px',
-              backgroundColor: '#ffffff',
-              boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
+              border: selectedGroups[groupIndex]
+                ? "2px solid #8edeab"
+                : "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 2,
               p: 2,
+              background: selectedGroups[groupIndex]
+                ? "rgba(142,222,171,0.1)"
+                : "rgba(255,255,255,0.05)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 2,
+              cursor: "pointer",
+              transition: "all 0.3s ease",
+              "&:hover": {
+                background: selectedGroups[groupIndex]
+                  ? "rgba(142,222,171,0.15)"
+                  : "rgba(255,255,255,0.08)",
+              },
             }}
           >
             <Typography
-              variant="h6"
+              variant="subtitle1"
               sx={{
-                color: '#283b4a',
-                fontWeight: 'bold',
-                mb: 2,
+                width: "100%",
+                fontWeight: "bold",
+                mb: 1,
+                color: "#8edeab",
               }}
             >
-              Group {groupIdx + 1}
+              Group {groupIndex + 1}
             </Typography>
 
-            <Divider sx={{ mb: 2 }} />
+            {group.map((filename: string) => (
+              <Box
+                key={filename}
+                sx={{
+                  width: 120,
+                  height: 120,
+                  borderRadius: 2,
+                  overflow: "hidden",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(0,0,0,0.3)",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                }}
+              >
+                <img
+                  src={filesMap[filename]}
+                  alt={filename}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              </Box>
+            ))}
+          </Box>
+        ))}
 
-            {/* ✅ Flexbox layout instead of Grid */}
-            <Box
-              sx={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 2,
-                justifyContent: 'flex-start',
-              }}
-            >
-              {groupData.map((filename: string) => {
-                const fileInfo = fileMap[filename];
-                if (!fileInfo) return null;
-
-                return (
-                  <Card
-                    key={`${groupKey}-${filename}`}
-                    sx={{
-                      width: { xs: '100%', sm: 160, md: 180 },
-                      border: '1px solid #e0e0e0',
-                      borderRadius: '10px',
-                      transition: '0.2s',
-                      '&:hover': { transform: 'scale(1.02)' },
-                    }}
-                  >
-                    <CardMedia
-                      component="img"
-                      image={fileInfo}
-                      alt={filename}
-                      sx={{
-                        height: 140,
-                        objectFit: 'cover',
-                        borderTopLeftRadius: '10px',
-                        borderTopRightRadius: '10px',
-                      }}
-                    />
-                    <CardContent
-                      sx={{
-                        textAlign: 'center',
-                        padding: '0.5rem',
-                      }}
-                    >
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          color: '#607d8b',
-                          wordBreak: 'break-all',
-                        }}
-                      >
-                        {filename}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </Box>
-          </Card>
-        );
-      })}
-
-      {/* Confirm Button */}
-      <Box sx={{ textAlign: 'center', mt: 5 }}>
-        <Button
-          variant="contained"
-          sx={{
-            backgroundColor: '#8edeab',
-            color: '#fff',
-            minWidth: 200,
-            '&:hover': { backgroundColor: '#76c89b' },
-          }}
-          onClick={() => alert('Grouping confirmed!')}
-        >
-          Confirm Grouping
-        </Button>
+        <Box sx={{ textAlign: "center", mt: 3 }}>
+          <Button
+            variant="contained"
+            sx={{
+              background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
+              color: "#fff",
+              fontWeight: "bold",
+              borderRadius: "30px",
+              paddingX: 4,
+              paddingY: 1.2,
+              boxShadow: "0px 0px 10px rgba(110,231,183,0.5)",
+              "&:hover": {
+                background: "linear-gradient(45deg, #57cc99, #2fa88a)",
+                boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
+              },
+            }}
+            onClick={() => {
+              const selected = groups.filter((_, idx) => selectedGroups[idx]);
+              console.log("Selected groups:", selected);
+              // navigate("/next-step", { state: { selected } });
+            }}
+          >
+            Confirm Selection
+          </Button>
+        </Box>
       </Box>
     </Box>
   );

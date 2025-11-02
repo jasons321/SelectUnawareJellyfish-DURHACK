@@ -1,5 +1,5 @@
-import React from 'react';
-import SelectActionCard from './card.tsx';
+import React from "react";
+import SelectActionCard from "./card.tsx";
 import {
   Button,
   Typography,
@@ -9,17 +9,16 @@ import {
   DialogContent,
   DialogActions,
   CircularProgress,
-  useTheme,
   List,
   ListItem,
   ListItemIcon,
   ListItemText,
   Divider,
-} from '@mui/material';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
-import { useNavigate } from 'react-router-dom'; // ✅ Added for navigation
+} from "@mui/material";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import { useNavigate } from "react-router-dom";
 
 export default function SelectPage() {
   const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
@@ -28,64 +27,52 @@ export default function SelectPage() {
   const [uploadedFiles, setUploadedFiles] = React.useState<string[]>([]);
   const [dragOver, setDragOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
-  const theme = useTheme();
-  const navigate = useNavigate(); // ✅ Hook for navigation
+  const [computing, setComputing] = React.useState(false);
+  const navigate = useNavigate();
 
-  /** Continue button handler */
   const handleContinue = () => {
-    console.log('Continue clicked with selection:', selectedCard);
-
-    // ✅ Only open popup if "Local Computer" card is selected (index 1)
     if (selectedCard === 1) {
       setOpenPopup(true);
-    } else {
-      console.log('Popup only opens for Local Computer card');
     }
   };
 
-  /** Handle file selection */
   const handleFilesSelect = (newFiles: FileList | null) => {
     if (!newFiles) return;
     const fileArray = Array.from(newFiles);
 
-    // ✅ Filter only image files and avoid duplicates
     const uniqueFiles = fileArray.filter(
       (f) =>
-        f.type.startsWith('image/') &&
+        f.type.startsWith("image/") &&
         !files.some((existing) => existing.name === f.name)
     );
 
     setFiles((prev) => [...prev, ...uniqueFiles]);
   };
 
-  /** Drag events */
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(true);
   };
-
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(false);
   };
-
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(false);
     handleFilesSelect(e.dataTransfer.files);
   };
 
-  /** Upload simulation */
   const handleUpload = async () => {
     if (files.length === 0) return;
     setUploading(true);
 
+    // Simulate upload delay
     for (const f of files) {
       await new Promise((resolve) => setTimeout(resolve, 700));
       setUploadedFiles((prev) =>
         prev.includes(f.name) ? prev : [...prev, f.name]
       );
-      console.log('File uploaded:', f.name);
     }
 
     setUploading(false);
@@ -96,97 +83,175 @@ export default function SelectPage() {
     setFiles([]);
     setUploadedFiles([]);
     setUploading(false);
+    setComputing(false);
   };
 
-  /** Local Compute (calls backend + navigates to results page) */
   const handleLocalCompute = async () => {
     if (files.length === 0) return;
 
+    setComputing(true);
     const formData = new FormData();
-    files.forEach((file) => formData.append('images', file));
+    files.forEach((file) => formData.append("images", file));
 
     try {
-      const response = await fetch('http://localhost:8001/api/compute/phash-group', {
-        method: 'POST',
-        body: formData,
-      });
+      const response = await fetch(
+        "http://localhost:8001/api/compute/phash-group",
+        { method: "POST", body: formData }
+      );
 
-      if (!response.ok) throw new Error('Server error');
-
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const result = await response.json();
 
-      console.log('pHash groups:', result.groups);
+      const filesMap: Record<string, string> = {};
+      for (const file of files) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (err) => reject(err);
+        });
+        filesMap[file.name] = base64;
+      }
 
-      // ✅ Navigate to results page with data
-      navigate('/results', {
-        state: {
-          groups: result.groups,
-          phash: result.phash,
-          files: files.map((f) => ({
-            name: f.name,
-            url: URL.createObjectURL(f),
-          })),
-        },
-      });
+      navigate("/results", { state: { groups: result.groups, filesMap } });
     } catch (err) {
-      console.error('Error computing image groups:', err);
+      console.error("Error computing image groups:", err);
+    } finally {
+      setComputing(false);
     }
   };
 
   return (
     <Box
       sx={{
-        width: '100vw',
-        height: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: '1rem',
-        gap: '2rem',
+        width: "100vw",
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        gap: "2rem",
+        background:
+          "linear-gradient(-45deg, #0f2027, #203a43, #2c5364, #184e68)",
+        backgroundSize: "400% 400%",
+        animation: "gradientShift 12s ease infinite",
+        color: "rgba(255,255,255,0.9)",
+        overflow: "hidden",
+        "@keyframes gradientShift": {
+          "0%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+          "100%": { backgroundPosition: "0% 50%" },
+        },
       }}
     >
-      {/* Title */}
       <Typography
         variant="h3"
         component="h1"
-        sx={{ fontWeight: 'bold', color: '#283b4a', textAlign: 'center' }}
+        sx={{
+          fontWeight: "bold",
+          color: "#b2ffb2",
+          textAlign: "center",
+          textShadow: "0 0 10px rgba(178,255,178,0.6)",
+        }}
       >
         Upload Your Files
       </Typography>
 
-      {/* Card Selection */}
-      <SelectActionCard
-        selectedCard={selectedCard}
-        onSelectCard={setSelectedCard}
-      />
-
-      {/* Continue Button */}
-      <Button
-        variant="contained"
+      <Box
         sx={{
-          backgroundColor: '#8edeab',
-          color: '#fff',
-          '&:hover': { backgroundColor: '#76c89b' },
-          minWidth: 180,
-          fontWeight: 'bold',
+          backdropFilter: "blur(15px)",
+          backgroundColor: "rgba(255,255,255,0.1)",
+          border: "1px solid rgba(255,255,255,0.2)",
+          borderRadius: "16px",
+          padding: "2rem",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+          width: { xs: "90%", sm: "70%", md: "50%" },
         }}
-        onClick={handleContinue}
-        disabled={selectedCard === null}
       >
-        Continue
-      </Button>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "center", // Center the card horizontally
+            width: "100%", // Take up full container width
+          }}
+        >
+          <SelectActionCard
+            selectedCard={selectedCard}
+            onSelectCard={setSelectedCard}
+          />
+        </Box>
 
-      {/* Popup Dialog */}
-      <Dialog open={openPopup} onClose={handleClosePopup} maxWidth="md" fullWidth>
-        <DialogTitle>Upload Files</DialogTitle>
-        <DialogContent>
+        <Box textAlign="center" mt={3}>
+          <Button
+            variant="contained"
+            sx={{
+              background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
+              color: "#fff",
+              fontWeight: "bold",
+              paddingX: 4,
+              paddingY: 1.2,
+              borderRadius: "30px",
+              boxShadow: "0px 0px 10px rgba(110,231,183,0.5)",
+              "&:hover": {
+                background: "linear-gradient(45deg, #57cc99, #2fa88a)",
+                boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
+              },
+            }}
+            onClick={handleContinue}
+            disabled={selectedCard === null}
+          >
+            Continue
+          </Button>
+        </Box>
+      </Box>
+
+      {/* Darker Glass Dialog */}
+      <Dialog
+        open={openPopup}
+        onClose={handleClosePopup}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backdropFilter: "blur(25px)",
+            backgroundColor: "rgba(20,20,20,0.85)", // 👈 Darker background
+            border: "1px solid rgba(255,255,255,0.15)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.8)",
+            color: "#fff",
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: "bold", color: "#8edeab" }}>
+          Upload Files
+        </DialogTitle>
+
+        <DialogContent sx={{ position: "relative" }}>
+          {computing && (
+            <Box
+              sx={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                bgcolor: "rgba(0,0,0,0.5)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 10,
+                borderRadius: "10px",
+              }}
+            >
+              <CircularProgress size={60} color="success" />
+            </Box>
+          )}
+
           <Box
             sx={{
-              display: 'flex',
-              flexDirection: { xs: 'column', md: 'row' },
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
               gap: 3,
-              alignItems: 'stretch',
+              alignItems: "stretch",
               mt: 2,
             }}
           >
@@ -198,32 +263,27 @@ export default function SelectPage() {
               sx={{
                 flex: 1,
                 border: `2px dashed ${
-                  dragOver ? theme.palette.primary.main : '#b0bec5'
+                  dragOver ? "#8edeab" : "rgba(255,255,255,0.3)"
                 }`,
-                borderRadius: '10px',
+                borderRadius: "12px",
                 height: 220,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                backgroundColor: dragOver ? '#f0f9f4' : '#fafafa',
-                transition: 'all 0.3s ease',
-                '&:hover': { backgroundColor: '#f5f5f5' },
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                background: dragOver
+                  ? "rgba(142,222,171,0.15)"
+                  : "rgba(40,40,40,0.6)", // 👈 Darker for better contrast
+                transition: "all 0.3s ease",
+                "&:hover": { background: "rgba(60,60,60,0.7)" },
               }}
-              onClick={() => document.getElementById('fileInput')?.click()}
+              onClick={() => document.getElementById("fileInput")?.click()}
             >
-              <CloudUploadIcon
-                sx={{
-                  fontSize: 48,
-                  color: dragOver ? theme.palette.primary.main : '#90a4ae',
-                }}
-              />
-              <Typography
-                variant="body1"
-                sx={{ mt: 1, color: '#607d8b', textAlign: 'center' }}
-              >
-                Drag & Drop your <strong>image files</strong> here or click to browse
+              <CloudUploadIcon sx={{ fontSize: 48, color: "#8edeab" }} />
+              <Typography variant="body1" sx={{ mt: 1, textAlign: "center" }}>
+                Drag & Drop your <strong>image files</strong> here or click to
+                browse
               </Typography>
               <input
                 id="fileInput"
@@ -231,73 +291,94 @@ export default function SelectPage() {
                 accept="image/*"
                 multiple
                 onChange={(e) => handleFilesSelect(e.target.files)}
-                style={{ display: 'none' }}
+                style={{ display: "none" }}
               />
             </Box>
+    </Box>
+<Box
+  sx={{
+    flex: 1,
+    border: "1px solid rgba(255,255,255,0.2)",
+    borderRadius: "10px",
+    padding: 2,
+    backgroundColor: "rgba(35,35,35,0.7)", // Darker list background
+    overflowY: "auto", // Enable scrolling if content overflows
+    maxHeight: 200,
+    "&::-webkit-scrollbar": {
+      width: "8px", // Custom width
+    },
+    "&::-webkit-scrollbar-thumb": {
+      background: "linear-gradient(45deg, #6ee7b7, #3caea3)", // Gradient thumb
+      borderRadius: "10px", // Rounded thumb
+      border: "2px solid rgba(255, 255, 255, 0.1)", // Subtle border
+    },
+    "&::-webkit-scrollbar-thumb:hover": {
+      background: "linear-gradient(45deg, #57cc99, #2fa88a)", // Darker thumb on hover
+    },
+    "&::-webkit-scrollbar-track": {
+      background: "rgba(255, 255, 255, 0.1)", // Track background
+      borderRadius: "10px", // Rounded track
+    },
+    "&::-webkit-scrollbar-track:hover": {
+      background: "rgba(255, 255, 255, 0.2)", // Hover effect on track
+    },
+  }}
+>
+    <Typography
+        variant="subtitle1"
+        sx={{ fontWeight: "bold", mb: 1, color: "#b2ffb2" }}
+    >
+        {files.length === 0 ? "No Files Selected" : "Files to Upload:"}
+    </Typography>
 
-            {/* File List */}
-            <Box
-              sx={{
-                flex: 1,
-                border: '1px solid #e0e0e0',
-                borderRadius: '10px',
-                padding: 2,
-                backgroundColor: '#f9f9f9',
-                overflowY: 'auto',
-                maxHeight: 220,
-              }}
+    <List dense>
+        {files.map((f) => (
+        <React.Fragment key={f.name}>
+            <ListItem
+            secondaryAction={
+                uploadedFiles.includes(f.name) && (
+                <CheckCircleIcon sx={{ color: "#8edeab" }} />
+                )
+            }
             >
-              <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
-                {files.length === 0 ? 'No Files Selected' : 'Files to Upload:'}
-              </Typography>
+            <ListItemIcon>
+                <InsertDriveFileIcon sx={{ color: "#b0bec5" }} />
+            </ListItemIcon>
+            <ListItemText
+                primary={f.name}
+                secondary={
+                uploadedFiles.includes(f.name) ? "Uploaded" : "Pending"
+                }
+            />
+            </ListItem>
+            <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+        </React.Fragment>
+        ))}
+    </List>
+    </Box>
 
-              <List dense>
-                {files.map((f) => (
-                  <React.Fragment key={f.name}>
-                    <ListItem
-                      secondaryAction={
-                        uploadedFiles.includes(f.name) && (
-                          <CheckCircleIcon sx={{ color: '#4caf50' }} />
-                        )
-                      }
-                    >
-                      <ListItemIcon>
-                        <InsertDriveFileIcon sx={{ color: '#607d8b' }} />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={f.name}
-                        secondary={
-                          uploadedFiles.includes(f.name)
-                            ? 'Uploaded'
-                            : 'Pending'
-                        }
-                      />
-                    </ListItem>
-                    <Divider />
-                  </React.Fragment>
-                ))}
-              </List>
-            </Box>
-          </Box>
 
-          {/* Upload Button */}
           {files.length > 0 && (
-            <Box sx={{ mt: 3, textAlign: 'center' }}>
+            <Box sx={{ mt: 3, textAlign: "center" }}>
               <Button
                 variant="contained"
                 onClick={handleUpload}
                 disabled={uploading || files.length === 0}
                 sx={{
-                  backgroundColor: '#8edeab',
-                  color: '#fff',
-                  '&:hover': { backgroundColor: '#76c89b' },
+                  background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
+                  color: "#fff",
+                  fontWeight: "bold",
                   minWidth: 200,
+                  borderRadius: "30px",
+                  "&:hover": {
+                    background: "linear-gradient(45deg, #57cc99, #2fa88a)",
+                  },
                 }}
               >
                 {uploading ? (
                   <CircularProgress size={24} color="inherit" />
                 ) : (
-                  'Upload All'
+                  "Upload All"
                 )}
               </Button>
             </Box>
@@ -305,22 +386,37 @@ export default function SelectPage() {
         </DialogContent>
 
         <DialogActions>
-          <Button onClick={handleClosePopup}>Cancel</Button>
+          <Button
+            onClick={handleClosePopup}
+            disabled={computing}
+            sx={{ color: "#ccc", "&:hover": { color: "#fff" } }}
+          >
+            Cancel
+          </Button>
           <Button
             variant="contained"
             onClick={handleLocalCompute}
-            disabled={uploadedFiles.length === 0}
+            disabled={uploadedFiles.length === 0 || computing}
             sx={{
-              backgroundColor:
-                uploadedFiles.length > 0 ? '#8edeab' : '#ccc',
-              color: '#fff',
-              '&:hover': {
-                backgroundColor:
-                  uploadedFiles.length > 0 ? '#76c89b' : '#ccc',
+              background:
+                uploadedFiles.length > 0 && !computing
+                  ? "linear-gradient(45deg, #8edeab, #57cc99)"
+                  : "rgba(255,255,255,0.15)",
+              color: "#fff",
+              borderRadius: "30px",
+              "&:hover": {
+                background:
+                  uploadedFiles.length > 0 && !computing
+                    ? "linear-gradient(45deg, #57cc99, #2fa88a)"
+                    : "rgba(255,255,255,0.25)",
               },
             }}
           >
-            Local Compute
+            {computing ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              "Local Compute"
+            )}
           </Button>
         </DialogActions>
       </Dialog>

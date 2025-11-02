@@ -200,6 +200,7 @@ SIMILARITY_THRESHOLD =20 # Adjust as needed
 async def compute_phash_group(images: List[UploadFile] = File(...)):
     """
     Compute pHashes for uploaded images and group visually similar images.
+    Only returns groups with more than one image.
     """
     phash_dict = {}
 
@@ -210,7 +211,9 @@ async def compute_phash_group(images: List[UploadFile] = File(...)):
             image = Image.open(io.BytesIO(contents))
             phash_dict[img_file.filename] = imagehash.phash(image)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Error processing {img_file.filename}: {str(e)}")
+            raise HTTPException(
+                status_code=400, detail=f"Error processing {img_file.filename}: {str(e)}"
+            )
 
     # Create adjacency list for similar images
     adjacency = {fname: set() for fname in phash_dict.keys()}
@@ -238,7 +241,9 @@ async def compute_phash_group(images: List[UploadFile] = File(...)):
         if fname not in visited:
             group = []
             dfs(fname, group)
-            groups.append(group)
+            # Only keep groups with more than 1 image
+            if len(group) > 1:
+                groups.append(group)
 
     # Convert phash to string for response
     phash_str = {fname: str(hash_val) for fname, hash_val in phash_dict.items()}
