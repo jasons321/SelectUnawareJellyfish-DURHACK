@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -17,6 +18,16 @@ import json
 import io
 import msal
 import httpx
+import shutil
+
+try:
+    from image import ImageProcessor, DataLoader, ImageContainer
+except ImportError:
+    print("Error: 'image.py' not found. Please ensure it's in the same directory.")
+    # Define dummy classes to allow the server to start, but upload will fail
+    class ImageProcessor: pass
+    class DataLoader: pass
+    class ImageContainer: pass
 
 # Create FastAPI instance
 app = FastAPI(
@@ -24,6 +35,28 @@ app = FastAPI(
     description="FastAPI server with Google Drive OAuth integration and Picker API support",
     version="2.0.0"
 )
+
+origins = [
+    "http://localhost:8001",  # React dev server
+    "http://127.0.0.1:8001",
+    "http://localhost:8001/api/upload",
+    "http://localhost:8001/results",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,         
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+try:
+    processor = ImageProcessor()
+except Exception as e:
+    print(f"Failed to initialise ImageProcessor: {e}")
+    print("Gemini features will not work.")
+    processor = None
 
 CLIENT_SECRET_FILE = 'client_secret.json'
 SCOPES = [
@@ -222,6 +255,7 @@ async def oauth2callback(request: Request):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OAuth callback error: {str(e)}")
+
 
 @app.get("/api/auth/logout")
 async def logout(request: Request):
@@ -758,7 +792,98 @@ async def get_onedrive_folder_images(folder_id: str, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting OneDrive folder images: {str(e)}")
 
-# Serve React App (catch-all route for SPA)
+@app.post("/api/upload")
+async def upload_images(files: List[UploadFile] = File(...)):
+    """
+    Upload images and process them with Gemini Vision Pro.
+    Streams results back to the client as Server-Sent Events (SSE).
+    """
+    if processor is None:
+        raise HTTPException(status_code=500, detail="ImageProcessor not initialized. Check Gemini API setup.")
+    
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    # CRITICAL FIX: Save files BEFORE creating the generator
+    temp_dir = Path("./temp_uploads")
+    temp_dir.mkdir(exist_ok=True)
+    
+    file_count = len(files)
+    print(f"Starting upload of {file_count} files...")
+    
+    try:
+        # Save all files immediately
+        for i, file in enumerate(files):
+            file_path = temp_dir / f"{i}_{file.filename}"
+            content = await file.read()
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            print(f"Saved: {file.filename} -> {file_path}")
+        
+    except Exception as e:
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to save files: {str(e)}")
+    
+    async def generate_stream():
+        """Generator function that yields SSE events"""
+        try:
+            yield f"data: {json.dumps({'status': 'uploading', 'message': f'Received {file_count} files'})}\n\n"
+            
+            for i in range(file_count):
+                yield f"data: {json.dumps({'status': 'uploading', 'progress': i + 1, 'total': file_count})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'processing', 'message': 'Loading images...'})}\n\n"
+            
+            data_loader = DataLoader(folder_path=str(temp_dir), objs=None)
+            images = data_loader.load_images_from_folder_path()
+            
+            if not images:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'No valid images found'})}\n\n"
+                return
+            
+            yield f"data: {json.dumps({'status': 'processing', 'message': f'Sending {len(images)} images to Gemini...'})}\n\n"
+            
+            processed_images = processor.gemini_inference(images)
+            
+            if processed_images is None:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Gemini processing failed'})}\n\n"
+                return
+            
+            for i, img_container in enumerate(processed_images):
+                result_data = {
+                    'status': 'result',
+                    'index': i,
+                    'total': len(processed_images),
+                    'original_name': os.path.basename(img_container.filepath),
+                    'result': img_container.gemini_response
+                }
+                yield f"data: {json.dumps(result_data)}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'complete', 'message': 'All images processed successfully'})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Processing error: {str(e)}'})}\n\n"
+        
+        finally:
+            try:
+                shutil.rmtree(temp_dir)
+                print(f"Cleaned up {temp_dir}")
+            except Exception as e:
+                print(f"Error cleaning up temp files: {e}")
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
 @app.get("/{full_path:path}")
 async def serve_react_app(full_path: str):
     index_file = FRONTEND_DIR / "index.html"
