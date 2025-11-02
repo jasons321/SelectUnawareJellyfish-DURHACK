@@ -117,11 +117,12 @@ export default function SelectPage() {
         filesMap[file.name] = URL.createObjectURL(file); 
       }
 
+      // FIX: Pass fileArray instead of files
       navigate('/results', {
         state: {
           groups: resultData.groups,
           filesMap: filesMap,
-          files: files
+          files: fileArray // FIXED: was 'files', should be 'fileArray'
         },
       });
     } catch (err) {

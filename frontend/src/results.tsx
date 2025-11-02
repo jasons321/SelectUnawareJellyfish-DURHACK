@@ -11,6 +11,15 @@ export default function ResultsPage() {
     files: File[];
   };
 
+  // Debug: Log what we received
+  React.useEffect(() => {
+    console.log('Results page received:');
+    console.log('- groups:', groups);
+    console.log('- files:', files);
+    console.log('- files length:', files?.length);
+    console.log('- filesMap keys:', Object.keys(filesMap));
+  }, [groups, files, filesMap]);
+
   // Initialize state to select all images except the last one in each group
   const [selectedImages, setSelectedImages] = React.useState<boolean[][]>(() =>
     groups.map((group) =>
@@ -27,34 +36,40 @@ export default function ResultsPage() {
     });
   };
 
-    const handleConfirmSelection = () => {
-    // Create a new array to store the filtered files
-    const filteredFiles = files.filter((file, fileIndex) => {
-        console.log(file)
-        // Find the group and index of the current file
-        let groupIndex = 0;
-        let imageIndex = fileIndex;
-
-        // Check in which group the file is located
-        for (let i = 0; i < groups.length; i++) {
-        if (imageIndex < groups[i].length) {
-            groupIndex = i;
-            break;
+  const handleConfirmSelection = () => {
+    console.log('=== CONFIRM SELECTION DEBUG ===');
+    console.log('Files array:', files);
+    console.log('Files length:', files?.length);
+    
+    // Create a set of filenames that should be REMOVED (selected for deletion)
+    const filesToRemove = new Set<string>();
+    
+    groups.forEach((group, groupIndex) => {
+      group.forEach((filename, imageIndex) => {
+        // If the image is selected (checked/red), it should be removed
+        if (selectedImages[groupIndex][imageIndex]) {
+          filesToRemove.add(filename);
         }
-        imageIndex -= groups[i].length;
-        }
-
-        // Return the file if it's not selected (i.e., corresponding selectedImage is false)
-        return !selectedImages[groupIndex][imageIndex];
+      });
     });
 
-    // Log the new list of files after filtering
-    console.log(filteredFiles);
-    };
+    console.log('Files to remove (Set):', Array.from(filesToRemove));
 
+    // Filter files: keep only those NOT in the filesToRemove set
+    const filteredFiles = files.filter((file) => {
+      const shouldKeep = !filesToRemove.has(file.name);
+      console.log(`File "${file.name}": ${shouldKeep ? 'KEEP' : 'REMOVE'}`);
+      return shouldKeep;
+    });
 
-
-
+    console.log('Files to remove:', Array.from(filesToRemove));
+    console.log('Files to keep:', filteredFiles);
+    console.log('Original count:', files?.length || 0, '-> Filtered count:', filteredFiles.length);
+    console.log('=== END DEBUG ===');
+    
+    // TODO: Navigate to next step or update state with filteredFiles
+    // Example: navigate('/next-step', { state: { files: filteredFiles } });
+  };
 
   return (
     <Box
@@ -140,22 +155,26 @@ export default function ResultsPage() {
                   height: 120,
                   borderRadius: 2,
                   overflow: "hidden",
-                  border: "1px solid rgba(255,255,255,0.2)",
+                  border: selectedImages[groupIndex][imageIndex]
+                    ? "3px solid #ff4444" // Thicker, brighter red border for selected (to be deleted)
+                    : "3px solid rgba(142, 222, 171, 0.6)", // Green border for kept images
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor:
                     selectedImages[groupIndex][imageIndex]
-                      ? "rgba(255,0,0,0.3)" // Selected images have normal background
-                      : "rgba(0,0,0,0.3)", // Deselected images highlighted in red
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                      ? "rgba(255,0,0,0.3)" // Red background for selected (will be deleted)
+                      : "rgba(0,0,0,0.3)", // Dark background for kept
+                  boxShadow: selectedImages[groupIndex][imageIndex]
+                    ? "0 0 15px rgba(255,68,68,0.6)" // Red glow for selected
+                    : "0 4px 12px rgba(0,0,0,0.5)",
                   cursor: "pointer",
-                  transition: "background-color 0.3s ease",
+                  transition: "all 0.3s ease",
                   "&:hover": {
-                    background:
-                      selectedImages[groupIndex][imageIndex]
-                        ? "rgba(255,0,0,0.5)"
-                        : "rgba(0,0,0,0.5)",
+                    border: selectedImages[groupIndex][imageIndex]
+                      ? "3px solid #ff6666"
+                      : "3px solid rgba(142, 222, 171, 0.9)",
+                    transform: "scale(1.05)",
                   },
                 }}
               >
@@ -170,6 +189,9 @@ export default function ResultsPage() {
         ))}
 
         <Box sx={{ textAlign: "center", mt: 3 }}>
+          <Typography variant="body2" sx={{ mb: 2, color: "#ccc" }}>
+            🔴 Red border = Will be deleted | 🟢 Green border = Will be kept
+          </Typography>
           <Button
             variant="contained"
             sx={{
