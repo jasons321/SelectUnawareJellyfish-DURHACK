@@ -28,11 +28,13 @@ class ImageContainer:
 class DataLoader:
     """ Loads in the image data and stores it and the metadata """
 
-    def __init__(self, folder_path) -> None:
+    def __init__(self, folder_path, objs) -> None:
         self.folder_path = folder_path
+        self.objs = objs
         self.images: list[ImageContainer] = []
+        self.root = "."
 
-    def load_images(self):
+    def load_images_from_folder_path(self):
         """
         Returns
         -------
@@ -61,7 +63,31 @@ class DataLoader:
                         self.images.append(ImageContainer(filepath=filepath, img=img, exif_dict=exif_dict))
         return self.images
 
-        
+    def load_images_from_obj(self):
+        """
+        Returns
+        -------
+        List[ImageContainer]
+            A list of ImageContainers containing the Image object and EXIF dictionary associated with every image in the folder_path (including subdirectories)
+        """
+        for i, obj in enumerate(self.objs):
+            img = Image.open(obj)
+            exif_dict = img.getexif()
+            if exif_dict is None:
+                # return "No EXIF data found."
+                return None
+            filepath = f"{self.root}/image{i}.jpg"
+            img.save(filepath)
+            self.images.append(ImageContainer(filepath=filepath, img=img, exif_dict=exif_dict))
+        return self.images
+
+    def destroy_data(self):
+        """
+        Delete the uploaded images
+        """
+        os.remove(f"{self.root}/*")
+
+
 
 class ImageProcessor:
     """ A class for managing image processing functions """
