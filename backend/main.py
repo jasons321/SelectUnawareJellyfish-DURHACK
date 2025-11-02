@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from google.oauth2.credentials import Credentials
@@ -15,23 +15,30 @@ import imagehash
 import io
 from collections import defaultdict
 import json
+import io
 
 # Create FastAPI instance
 app = FastAPI(
     title="Google Drive API Server",
-    description="FastAPI server with Google Drive OAuth integration",
-    version="1.0.0"
+    description="FastAPI server with Google Drive OAuth integration and Picker API support",
+    version="2.0.0"
 )
 
 CLIENT_SECRET_FILE = 'client_secret.json'
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+SCOPES = [
+    'https://www.googleapis.com/auth/photoslibrary',
+    'https://www.googleapis.com/auth/photoslibrary.readonly',
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/drive.metadata.readonly'
+]
+
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'NO_API_KEY')
 
 sessions: Dict[str, dict] = {}
 
-# Path to frontend build directory
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
-# Mount static files (CSS, JS, images, etc.)
 if FRONTEND_DIR.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
 
@@ -46,9 +53,29 @@ def create_flow(state=None):
         flow.state = state
     return flow
 
+def get_credentials_from_session(session_id: str) -> Credentials:
+    """Helper function to reconstruct Credentials from session"""
+    if not session_id or session_id not in sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    creds_data = sessions[session_id]["credentials"]
+    return Credentials(
+        token=creds_data["token"],
+        refresh_token=creds_data.get("refresh_token"),
+        token_uri=creds_data["token_uri"],
+        client_id=creds_data["client_id"],
+        client_secret=creds_data["client_secret"],
+        scopes=creds_data["scopes"]
+    )
+
+def update_session_token(session_id: str, credentials: Credentials):
+    """Update session with refreshed token if changed"""
+    if credentials.token != sessions[session_id]["credentials"]["token"]:
+        sessions[session_id]["credentials"]["token"] = credentials.token
+
 @app.get("/api")
 async def root():
-    return {"message": "Welcome to Google Drive API!"}
+    return {"message": "Welcome!"}
 
 @app.get("/api/auth/status")
 async def auth_status(request: Request):
@@ -61,16 +88,21 @@ async def auth_status(request: Request):
     return {"authenticated": False}
 
 @app.get("/api/auth/login")
-async def login():
+async def login(request: Request):
     """Initiate OAuth flow"""
     try:
         flow = create_flow()
         
+        # Check if user already has a session (re-authentication)
+        session_id = request.cookies.get("session_id")
+        has_existing_session = session_id and session_id in sessions
+        
         # Generate authorisation URL
+        # Only force consent if this is the first time or if we don't have a refresh token
         authorization_url, state = flow.authorization_url(
             access_type='offline',
-            # include_granted_scopes='true',
-            prompt='consent'  # Force consent to get refresh token
+            prompt='select_account' if has_existing_session else 'consent',
+            include_granted_scopes='true'  # Only request incremental scopes
         )
         
         # Store state temporarily
@@ -146,26 +178,52 @@ async def logout(request: Request):
     
     return response
 
-@app.get("/api/drive/files")
-async def list_drive_files(request: Request, max_results: int = 10):
-    """List files from Google Drive"""
-    # Check authentication
+@app.get("/api/auth/picker-token")
+async def get_picker_token(request: Request):
+    """Get access token for Google Picker API"""
     session_id = request.cookies.get("session_id")
     
     if not session_id or session_id not in sessions:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     try:
-        # Get credentials from session
-        creds_data = sessions[session_id]["credentials"]
-        credentials = Credentials(
-            token=creds_data["token"],
-            refresh_token=creds_data.get("refresh_token"),
-            token_uri=creds_data["token_uri"],
-            client_id=creds_data["client_id"],
-            client_secret=creds_data["client_secret"],
-            scopes=creds_data["scopes"]
+        credentials = get_credentials_from_session(session_id)
+        
+        # Refresh token if expired
+        if credentials.expired:
+            from google.auth.transport.requests import Request as GoogleRequest
+            credentials.refresh(GoogleRequest())
+            update_session_token(session_id, credentials)
+        
+        return {
+            "access_token": credentials.token,
+            "token_type": "Bearer"
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting token: {str(e)}")
+
+@app.get("/api/auth/api-key")
+async def get_api_key():
+    """Get Google API Key for Picker API"""
+    if GOOGLE_API_KEY == 'NO_API_KEY':
+        raise HTTPException(
+            status_code=500, 
+            detail="Google API Key not configured. Set GOOGLE_API_KEY environment variable."
         )
+    
+    return {"api_key": GOOGLE_API_KEY}
+
+@app.get("/api/drive/files")
+async def list_drive_files(request: Request, max_results: int = 10):
+    """List files from Google Drive"""
+    session_id = request.cookies.get("session_id")
+    
+    if not session_id or session_id not in sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        credentials = get_credentials_from_session(session_id)
         
         # Build Drive service
         service = build('drive', 'v3', credentials=credentials, static_discovery=False)
@@ -179,8 +237,7 @@ async def list_drive_files(request: Request, max_results: int = 10):
         items = results.get('files', [])
         
         # Update session with potentially refreshed token
-        if credentials.token != creds_data["token"]:
-            sessions[session_id]["credentials"]["token"] = credentials.token
+        update_session_token(session_id, credentials)
         
         return {
             "success": True,
@@ -249,6 +306,128 @@ async def compute_phash_group(images: List[UploadFile] = File(...)):
     phash_str = {fname: str(hash_val) for fname, hash_val in phash_dict.items()}
 
     return {"success": True, "phash": phash_str, "groups": groups}
+@app.get("/api/drive/download/{file_id}")
+async def download_file(file_id: str, request: Request):
+    """Download a file from Google Drive"""
+    session_id = request.cookies.get("session_id")
+    
+    if not session_id or session_id not in sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        credentials = get_credentials_from_session(session_id)
+        service = build('drive', 'v3', credentials=credentials, static_discovery=False)
+        
+        # Get file metadata
+        file_metadata = service.files().get(fileId=file_id, fields='name,mimeType').execute()
+        
+        # Download file content
+        request_obj = service.files().get_media(fileId=file_id)
+        file_content = io.BytesIO()
+        
+        from googleapiclient.http import MediaIoBaseDownload
+        downloader = MediaIoBaseDownload(file_content, request_obj)
+        
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        
+        # Reset file pointer
+        file_content.seek(0)
+        
+        # Update session with potentially refreshed token
+        update_session_token(session_id, credentials)
+        
+        # Return file as streaming response
+        return StreamingResponse(
+            file_content,
+            media_type=file_metadata.get('mimeType', 'application/octet-stream'),
+            headers={
+                'Content-Disposition': f'attachment; filename="{file_metadata.get("name", "file")}"'
+            }
+        )
+    
+    except HttpError as error:
+        if error.resp.status == 404:
+            raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=500, detail=f"Drive API Error: {str(error)}")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading file: {str(e)}")
+
+@app.get("/api/drive/folder-images/{folder_id}")
+async def get_folder_images(folder_id: str, request: Request):
+    """Get all image files from a folder (recursively)"""
+    session_id = request.cookies.get("session_id")
+    
+    if not session_id or session_id not in sessions:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        credentials = get_credentials_from_session(session_id)
+        service = build('drive', 'v3', credentials=credentials, static_discovery=False)
+        
+        def get_images_recursive(folder_id: str) -> List[dict]:
+            """Recursively get all images from folder and subfolders"""
+            images = []
+            
+            # Query for files in this folder
+            query = f"'{folder_id}' in parents and trashed=false"
+            page_token = None
+            
+            while True:
+                results = service.files().list(
+                    q=query,
+                    fields="nextPageToken, files(id, name, mimeType, modifiedTime, size, thumbnailLink, webViewLink)",
+                    pageToken=page_token,
+                    pageSize=100
+                ).execute()
+                
+                files = results.get('files', [])
+                
+                for file in files:
+                    mime_type = file.get('mimeType', '')
+                    
+                    # If it's a folder, recurse into it
+                    if mime_type == 'application/vnd.google-apps.folder':
+                        images.extend(get_images_recursive(file['id']))
+                    
+                    # If it's an image, add it to the list
+                    elif mime_type.startswith('image/'):
+                        images.append({
+                            'id': file['id'],
+                            'name': file['name'],
+                            'mimeType': mime_type,
+                            'url': file.get('webViewLink'),
+                            'thumbnailUrl': file.get('thumbnailLink'),
+                            'sizeBytes': file.get('size')
+                        })
+                
+                page_token = results.get('nextPageToken')
+                if not page_token:
+                    break
+            
+            return images
+        
+        # Get all images from folder
+        images = get_images_recursive(folder_id)
+        
+        # Update session with potentially refreshed token
+        update_session_token(session_id, credentials)
+        
+        return {
+            "success": True,
+            "files": images,
+            "count": len(images)
+        }
+    
+    except HttpError as error:
+        if error.resp.status == 404:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        raise HTTPException(status_code=500, detail=f"Drive API Error: {str(error)}")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting folder images: {str(e)}")
 
 # Serve React App (catch-all route for SPA)
 @app.get("/{full_path:path}")
@@ -263,11 +442,14 @@ async def serve_react_app(full_path: str):
 if __name__ == "__main__":
     import uvicorn
     
-    # Check if client_secret.json exists
     if not os.path.exists(CLIENT_SECRET_FILE):
-        print(f"ERROR: {CLIENT_SECRET_FILE} not found!")
+        print(f"{CLIENT_SECRET_FILE} not found!")
         exit(1)
+
+    if GOOGLE_API_KEY == 'YOUR_API_KEY_HERE':
+        print("GOOGLE_API_KEY not set!")
     
     print("Starting server on http://localhost:8001")
+    print(f"Scopes: {', '.join(SCOPES)}")
     
     uvicorn.run(app, host="0.0.0.0", port=8001)
