@@ -32,7 +32,7 @@ class DataLoader:
         self.folder_path = folder_path
         self.objs = objs
         self.images: list[ImageContainer] = []
-        self.root = "."
+        self.root = "./images"
 
     def load_images_from_folder_path(self):
         """
@@ -169,7 +169,7 @@ class ImageProcessor:
             print(f"Error parsing JSON: {e}")
             return None
 
-    def save_updated_image(self, image_container: ImageContainer) -> None:
+    def save_updated_image(self, image_container: ImageContainer) -> Dict[str, str] | None:
         """
         Updates the metadata and file name of a single image, saving it to disk
 
@@ -198,22 +198,33 @@ class ImageProcessor:
 
         try:
             subprocess.run(command_list, check=True, capture_output=True, text=True)
+
+            # Return name and metadata of image for UI
+            return image_container.gemini_response
         except subprocess.CalledProcessError as e:
             print(f"Error during XMP write: {e.stderr}")
+            return None
         except FileNotFoundError:
             print("Error: ExifTool not found.")
+            return None
 
 
 def main():
     image_folder = "/home/alexander/Pictures/"
     processor = ImageProcessor()
-    images = DataLoader(image_folder).load_images()
+    images = DataLoader(folder_path=image_folder, objs="").load_images_from_folder_path()
     if images is not None:
-        images = processor.gemini_inference(images)
-    if images is not None:
-        for image in images:
-            print(f"Original name: {image.filepath}\nNew name: {image.gemini_response['name']}, tags: {image.gemini_response['tags']}, desc: {image.gemini_response['description']}")
-            processor.save_updated_image(image)
+        # Split images into batches, send 50 at a time
+        def split(a, n):
+            k, m = divmod(len(a), n)
+            return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
+        batches = split(images, 50)
+        for batch in batches:
+            batch = processor.gemini_inference(batch)
+            if batch is not None:
+                for img in batch:
+                    print(f"Original name: {img.filepath}\nNew name: {img.gemini_response['name']}, tags: {img.gemini_response['tags']}, desc: {img.gemini_response['description']}")
+                    processor.save_updated_image(img)
 
 
 if __name__ == "__main__":
