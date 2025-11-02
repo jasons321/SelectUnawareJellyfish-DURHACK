@@ -5,20 +5,56 @@ import React from "react";
 export default function ResultsPage() {
   const location = useLocation();
 
-  const { groups, filesMap } = location.state as {
+  const { groups, filesMap, files } = location.state as {
     groups: string[][];
     filesMap: Record<string, string>;
+    files: File[];
   };
 
-  const [selectedGroups, setSelectedGroups] = React.useState<boolean[]>(
-    () => groups.map(() => true)
+  // Initialize state to select all images except the last one in each group
+  const [selectedImages, setSelectedImages] = React.useState<boolean[][]>(() =>
+    groups.map((group) =>
+      group.map((_, index) => index !== group.length - 1) // Select all except the last image in each group
+    )
   );
 
-  const toggleGroupSelection = (groupIndex: number) => {
-    setSelectedGroups((prev) =>
-      prev.map((val, idx) => (idx === groupIndex ? !val : val))
-    );
+  const toggleImageSelection = (groupIndex: number, imageIndex: number) => {
+    setSelectedImages((prev) => {
+      const updatedSelection = [...prev];
+      updatedSelection[groupIndex] = [...updatedSelection[groupIndex]];
+      updatedSelection[groupIndex][imageIndex] = !updatedSelection[groupIndex][imageIndex];
+      return updatedSelection;
+    });
   };
+
+    const handleConfirmSelection = () => {
+    // Create a new array to store the filtered files
+    const filteredFiles = files.filter((file, fileIndex) => {
+        console.log(file)
+        // Find the group and index of the current file
+        let groupIndex = 0;
+        let imageIndex = fileIndex;
+
+        // Check in which group the file is located
+        for (let i = 0; i < groups.length; i++) {
+        if (imageIndex < groups[i].length) {
+            groupIndex = i;
+            break;
+        }
+        imageIndex -= groups[i].length;
+        }
+
+        // Return the file if it's not selected (i.e., corresponding selectedImage is false)
+        return !selectedImages[groupIndex][imageIndex];
+    });
+
+    // Log the new list of files after filtering
+    console.log(filteredFiles);
+    };
+
+
+
+
 
   return (
     <Box
@@ -71,26 +107,16 @@ export default function ResultsPage() {
         {groups.map((group, groupIndex) => (
           <Box
             key={`group-${groupIndex}`}
-            onClick={() => toggleGroupSelection(groupIndex)}
             sx={{
-              border: selectedGroups[groupIndex]
-                ? "2px solid #8edeab"
-                : "1px solid rgba(255,255,255,0.2)",
+              border: "1px solid rgba(255,255,255,0.2)",
               borderRadius: 2,
               p: 2,
-              background: selectedGroups[groupIndex]
-                ? "rgba(142,222,171,0.1)"
-                : "rgba(255,255,255,0.05)",
+              background: "rgba(255,255,255,0.05)",
               display: "flex",
               flexWrap: "wrap",
               gap: 2,
               cursor: "pointer",
               transition: "all 0.3s ease",
-              "&:hover": {
-                background: selectedGroups[groupIndex]
-                  ? "rgba(142,222,171,0.15)"
-                  : "rgba(255,255,255,0.08)",
-              },
             }}
           >
             <Typography
@@ -105,9 +131,10 @@ export default function ResultsPage() {
               Group {groupIndex + 1}
             </Typography>
 
-            {group.map((filename: string) => (
+            {group.map((filename: string, imageIndex: number) => (
               <Box
                 key={filename}
+                onClick={() => toggleImageSelection(groupIndex, imageIndex)}
                 sx={{
                   width: 120,
                   height: 120,
@@ -117,8 +144,19 @@ export default function ResultsPage() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "rgba(0,0,0,0.3)",
+                  backgroundColor:
+                    selectedImages[groupIndex][imageIndex]
+                      ? "rgba(255,0,0,0.3)" // Selected images have normal background
+                      : "rgba(0,0,0,0.3)", // Deselected images highlighted in red
                   boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                  cursor: "pointer",
+                  transition: "background-color 0.3s ease",
+                  "&:hover": {
+                    background:
+                      selectedImages[groupIndex][imageIndex]
+                        ? "rgba(255,0,0,0.5)"
+                        : "rgba(0,0,0,0.5)",
+                  },
                 }}
               >
                 <img
@@ -147,11 +185,7 @@ export default function ResultsPage() {
                 boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
               },
             }}
-            onClick={() => {
-              const selected = groups.filter((_, idx) => selectedGroups[idx]);
-              console.log("Selected groups:", selected);
-              // navigate("/next-step", { state: { selected } });
-            }}
+            onClick={handleConfirmSelection}
           >
             Confirm Selection
           </Button>

@@ -27,6 +27,7 @@ export default function SelectPage() {
     const saved = sessionStorage.getItem('selected_card');
     return saved ? parseInt(saved, 10) : null;
   });
+
   
   const [openPopup, setOpenPopup] = React.useState(false);
   const [files, setFiles] = React.useState<File[]>([]);
@@ -120,6 +121,7 @@ export default function SelectPage() {
         state: {
           groups: resultData.groups,
           filesMap: filesMap,
+          files: files
         },
       });
     } catch (err) {
@@ -129,6 +131,7 @@ export default function SelectPage() {
       setIsGoogleDriveProcessing(false);
     }
   };
+  
 
   const handleGoogleDriveError = (error: Error) => {
     console.error('Google Drive error:', error);
@@ -218,7 +221,7 @@ export default function SelectPage() {
         filesMap[file.name] = base64;
       }
 
-      navigate("/results", { state: { groups: result.groups, filesMap } });
+      navigate("/results", { state: { groups: result.groups, filesMap, files: files } });
     } catch (err) {
       console.error("Error computing image groups:", err);
     } finally {
