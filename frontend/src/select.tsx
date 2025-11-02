@@ -133,7 +133,7 @@ export default function SelectPage() {
         state: {
           groups: resultData.groups,
           filesMap: filesMap,
-          files: fileArray // FIXED: was 'files', should be 'fileArray'
+          files: fileArray,
         },
       });
     } catch (err) {
@@ -194,6 +194,7 @@ export default function SelectPage() {
         state: {
           groups: resultData.groups,
           filesMap: filesMap,
+          files: fileArray,
         },
       });
     } catch (err) {
@@ -421,7 +422,7 @@ export default function SelectPage() {
             textShadow: "0px 0px 20px rgba(178,255,178,0.3)",
           }}
         >
-          Image Duplicate Detection
+          Upload Files
         </Typography>
 
         <Typography
