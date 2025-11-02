@@ -19,36 +19,126 @@ import {
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
-import { useNavigate } from 'react-router-dom'; // ✅ Added for navigation
+import { useNavigate } from 'react-router-dom';
+import { GoogleImagePicker, type GoogleImagePickerResult } from './GoogleDriveHandler';
 
 export default function SelectPage() {
-  const [selectedCard, setSelectedCard] = React.useState<number | null>(null);
+  // Restore selected card from sessionStorage after OAuth redirect
+  const [selectedCard, setSelectedCard] = React.useState<number | null>(() => {
+    const saved = sessionStorage.getItem('selected_card');
+    return saved ? parseInt(saved, 10) : null;
+  });
+  
   const [openPopup, setOpenPopup] = React.useState(false);
   const [files, setFiles] = React.useState<File[]>([]);
   const [uploadedFiles, setUploadedFiles] = React.useState<string[]>([]);
   const [dragOver, setDragOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
+  const [isGoogleDriveProcessing, setIsGoogleDriveProcessing] = React.useState(false);
   const theme = useTheme();
-  const navigate = useNavigate(); // ✅ Hook for navigation
+  const navigate = useNavigate();
 
-  /** Continue button handler */
+  // Save selected card to sessionStorage whenever it changes
+  React.useEffect(() => {
+    if (selectedCard !== null) {
+      sessionStorage.setItem('selected_card', selectedCard.toString());
+    }
+  }, [selectedCard]);
+
+  // Check if we just returned from OAuth with Google Drive selected
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const authenticated = urlParams.get('authenticated');
+    const pickerPending = sessionStorage.getItem('google_picker_pending');
+    
+    if (authenticated === 'true' && pickerPending === 'true' && selectedCard === 2) {
+      // Auto-click the continue button after OAuth
+      console.log('Auto-triggering Continue button after OAuth');
+      setTimeout(() => {
+        const continueButton = document.querySelector('[data-continue-button]') as HTMLElement;
+        if (continueButton) {
+          continueButton.click();
+        }
+      }, 100);
+    }
+  }, [selectedCard]);
+
   const handleContinue = () => {
     console.log('Continue clicked with selection:', selectedCard);
 
-    // ✅ Only open popup if "Local Computer" card is selected (index 1)
     if (selectedCard === 1) {
       setOpenPopup(true);
+    } else if (selectedCard === 2) {
+      console.log('Google Drive flow will be initiated');
     } else {
-      console.log('Popup only opens for Local Computer card');
+      console.log('No valid selection');
     }
   };
 
-  /** Handle file selection */
+  const handleGoogleDriveFilesSelected = async (result: GoogleImagePickerResult) => {
+    console.log('Google Drive files selected:', result.files);
+    setIsGoogleDriveProcessing(true);
+
+    try {
+      const fileArray: File[] = [];
+      
+      for (const pickedFile of result.files) {
+        const blob = result.blobs.get(pickedFile.id);
+        if (blob) {
+          const file = new File([blob], pickedFile.name, {
+            type: pickedFile.mimeType,
+          });
+          fileArray.push(file);
+        }
+      }
+
+      console.log(`Converted ${fileArray.length} files from Google Drive`);
+
+      const formData = new FormData();
+      fileArray.forEach((file) => formData.append('images', file));
+
+      const response = await fetch('http://localhost:8001/api/compute/phash-group', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Server error');
+
+      const resultData = await response.json();
+
+      console.log('pHash groups:', resultData.groups);
+
+      // Clear the selection from sessionStorage
+      sessionStorage.removeItem('selected_card');
+
+      navigate('/results', {
+        state: {
+          groups: resultData.groups,
+          phash: resultData.phash,
+          files: fileArray.map((f) => ({
+            name: f.name,
+            url: URL.createObjectURL(f),
+          })),
+        },
+      });
+    } catch (err) {
+      console.error('Error processing Google Drive images:', err);
+      alert('Failed to process Google Drive images. Please try again.');
+    } finally {
+      setIsGoogleDriveProcessing(false);
+    }
+  };
+
+  const handleGoogleDriveError = (error: Error) => {
+    console.error('Google Drive error:', error);
+    alert(`Google Drive error: ${error.message}`);
+    setIsGoogleDriveProcessing(false);
+  };
+
   const handleFilesSelect = (newFiles: FileList | null) => {
     if (!newFiles) return;
     const fileArray = Array.from(newFiles);
 
-    // ✅ Filter only image files and avoid duplicates
     const uniqueFiles = fileArray.filter(
       (f) =>
         f.type.startsWith('image/') &&
@@ -58,7 +148,6 @@ export default function SelectPage() {
     setFiles((prev) => [...prev, ...uniqueFiles]);
   };
 
-  /** Drag events */
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(true);
@@ -75,7 +164,6 @@ export default function SelectPage() {
     handleFilesSelect(e.dataTransfer.files);
   };
 
-  /** Upload simulation */
   const handleUpload = async () => {
     if (files.length === 0) return;
     setUploading(true);
@@ -98,7 +186,6 @@ export default function SelectPage() {
     setUploading(false);
   };
 
-  /** Local Compute (calls backend + navigates to results page) */
   const handleLocalCompute = async () => {
     if (files.length === 0) return;
 
@@ -117,7 +204,9 @@ export default function SelectPage() {
 
       console.log('pHash groups:', result.groups);
 
-      // ✅ Navigate to results page with data
+      // Clear the selection from sessionStorage
+      sessionStorage.removeItem('selected_card');
+
       navigate('/results', {
         state: {
           groups: result.groups,
@@ -146,7 +235,6 @@ export default function SelectPage() {
         gap: '2rem',
       }}
     >
-      {/* Title */}
       <Typography
         variant="h3"
         component="h1"
@@ -155,29 +243,57 @@ export default function SelectPage() {
         Upload Your Files
       </Typography>
 
-      {/* Card Selection */}
       <SelectActionCard
         selectedCard={selectedCard}
         onSelectCard={setSelectedCard}
       />
 
-      {/* Continue Button */}
-      <Button
-        variant="contained"
-        sx={{
-          backgroundColor: '#8edeab',
-          color: '#fff',
-          '&:hover': { backgroundColor: '#76c89b' },
-          minWidth: 180,
-          fontWeight: 'bold',
-        }}
-        onClick={handleContinue}
-        disabled={selectedCard === null}
-      >
-        Continue
-      </Button>
+      {selectedCard === 2 ? (
+        <GoogleImagePicker
+          onFilesSelected={handleGoogleDriveFilesSelected}
+          onError={handleGoogleDriveError}
+          maxFiles={50}
+        >
+          <Button
+            data-continue-button
+            variant="contained"
+            sx={{
+              backgroundColor: '#8edeab',
+              color: '#fff',
+              '&:hover': { backgroundColor: '#76c89b' },
+              minWidth: 180,
+              fontWeight: 'bold',
+            }}
+            disabled={isGoogleDriveProcessing}
+          >
+            {isGoogleDriveProcessing ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1, color: '#fff' }} />
+                Processing...
+              </>
+            ) : (
+              'Continue'
+            )}
+          </Button>
+        </GoogleImagePicker>
+      ) : (
+        <Button
+          data-continue-button
+          variant="contained"
+          sx={{
+            backgroundColor: '#8edeab',
+            color: '#fff',
+            '&:hover': { backgroundColor: '#76c89b' },
+            minWidth: 180,
+            fontWeight: 'bold',
+          }}
+          onClick={handleContinue}
+          disabled={selectedCard === null}
+        >
+          Continue
+        </Button>
+      )}
 
-      {/* Popup Dialog */}
       <Dialog open={openPopup} onClose={handleClosePopup} maxWidth="md" fullWidth>
         <DialogTitle>Upload Files</DialogTitle>
         <DialogContent>
@@ -190,7 +306,6 @@ export default function SelectPage() {
               mt: 2,
             }}
           >
-            {/* Drag-and-Drop Zone */}
             <Box
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -235,7 +350,6 @@ export default function SelectPage() {
               />
             </Box>
 
-            {/* File List */}
             <Box
               sx={{
                 flex: 1,
@@ -280,7 +394,6 @@ export default function SelectPage() {
             </Box>
           </Box>
 
-          {/* Upload Button */}
           {files.length > 0 && (
             <Box sx={{ mt: 3, textAlign: 'center' }}>
               <Button

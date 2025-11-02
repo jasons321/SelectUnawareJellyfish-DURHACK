@@ -26,7 +26,6 @@ interface GoogleImagePickerProps {
 // API configuration
 const API_BASE_URL = 'http://localhost:8001';
 
-// Utility function to check authentication status
 const checkAuthStatus = async (): Promise<boolean> => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/auth/status`, {
@@ -40,7 +39,6 @@ const checkAuthStatus = async (): Promise<boolean> => {
   }
 };
 
-// Utility function to initiate login
 const initiateLogin = async (): Promise<void> => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -49,7 +47,7 @@ const initiateLogin = async (): Promise<void> => {
     const data = await response.json();
     
     if (data.authorization_url) {
-      // Open OAuth flow in same window
+      sessionStorage.setItem('google_picker_pending', 'true');
       window.location.href = data.authorization_url;
     }
   } catch (error) {
@@ -57,7 +55,6 @@ const initiateLogin = async (): Promise<void> => {
   }
 };
 
-// Utility function to get OAuth token for Picker API
 const getPickerToken = async (): Promise<string> => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/auth/picker-token`, {
@@ -75,7 +72,6 @@ const getPickerToken = async (): Promise<string> => {
   }
 };
 
-// Utility function to download file from Google Drive
 const downloadFile = async (fileId: string): Promise<Blob> => {
   try {
     const response = await fetch(
@@ -95,7 +91,6 @@ const downloadFile = async (fileId: string): Promise<Blob> => {
   }
 };
 
-// Load Google Picker API script
 const loadGooglePickerAPI = (): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (window.google?.picker) {
@@ -126,17 +121,18 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isApiLoaded, setIsApiLoaded] = useState(false);
 
-  // Load Google Picker API on mount
-  useEffect(() => {
-    loadGooglePickerAPI()
-      .then(() => setIsApiLoaded(true))
-      .catch((error) => {
-        console.error('Failed to load Google Picker API:', error);
-        onError?.(new Error('Failed to load Google Picker API'));
+  const getApiKey = async (): Promise<string> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/api-key`, {
+        credentials: 'include',
       });
-  }, [onError]);
+      const data = await response.json();
+      return data.api_key;
+    } catch (error) {
+      throw new Error('Failed to get API key');
+    }
+  };
 
-  // Get all image files from a folder recursively
   const getImagesFromFolder = async (folderId: string): Promise<PickedFile[]> => {
     try {
       const response = await fetch(
@@ -157,7 +153,6 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
     }
   };
 
-  // Process picked files (download them)
   const processPickedFiles = async (files: PickedFile[]): Promise<GoogleImagePickerResult> => {
     const blobs = new Map<string, Blob>();
     const downloadPromises = files.map(async (file) => {
@@ -178,7 +173,6 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
     };
   };
 
-  // Handle picker callback
   const pickerCallback = useCallback(
     async (data: google.picker.ResponseObject) => {
       if (data.action === google.picker.Action.PICKED) {
@@ -187,14 +181,11 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
         try {
           let allFiles: PickedFile[] = [];
 
-          // Process each picked item
           for (const doc of data.docs) {
             if (doc.mimeType === 'application/vnd.google-apps.folder') {
-              // If it's a folder, get all images from it
               const folderImages = await getImagesFromFolder(doc.id);
               allFiles = allFiles.concat(folderImages);
             } else if (doc.mimeType.startsWith('image/')) {
-              // If it's an image, add it directly
               allFiles.push({
                 id: doc.id,
                 name: doc.name,
@@ -206,13 +197,11 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
             }
           }
 
-          // Limit to maxFiles
           if (allFiles.length > maxFiles) {
             allFiles = allFiles.slice(0, maxFiles);
             console.warn(`Limited selection to ${maxFiles} files`);
           }
 
-          // Download all files
           const result = await processPickedFiles(allFiles);
           onFilesSelected?.(result);
         } catch (error) {
@@ -228,25 +217,38 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
     [maxFiles, onFilesSelected, onError]
   );
 
-  // Create and show picker
+  useEffect(() => {
+    loadGooglePickerAPI()
+      .then(() => setIsApiLoaded(true))
+      .catch((error) => {
+        console.error('Failed to load Google Picker API:', error);
+        onError?.(new Error('Failed to load Google Picker API'));
+      });
+  }, [onError]);
+
+  // Clean up URL params after OAuth redirect
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const authenticated = urlParams.get('authenticated');
+    
+    if (authenticated === 'true') {
+      // Just clean up the URL, don't try to auto-open
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   const showPicker = useCallback(
     async (accessToken: string) => {
       if (!window.google?.picker) {
         throw new Error('Google Picker API not loaded');
       }
 
-      // Image MIME types to filter
+      const apiKey = await getApiKey();
+
       const imageMimeTypes = [
-        'image/jpeg',
-        'image/jpg',
-        'image/png',
-        'image/gif',
-        'image/bmp',
-        'image/webp',
-        'image/svg+xml',
-        'image/tiff',
-        'image/heic',
-        'image/heif',
+        'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
+        'image/bmp', 'image/webp', 'image/svg+xml', 'image/tiff',
+        'image/heic', 'image/heif',
       ];
 
       const picker = new google.picker.PickerBuilder()
@@ -260,7 +262,7 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
             .setSelectFolderEnabled(true)
         )
         .setOAuthToken(accessToken)
-        .setDeveloperKey(await getApiKey())
+        .setDeveloperKey(apiKey)
         .setCallback(pickerCallback)
         .setMaxItems(maxFiles)
         .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
@@ -272,39 +274,29 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
     [pickerCallback, maxFiles]
   );
 
-  // Get API key from backend
-  const getApiKey = async (): Promise<string> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/api-key`, {
-        credentials: 'include',
-      });
-      const data = await response.json();
-      return data.api_key;
-    } catch (error) {
-      throw new Error('Failed to get API key');
-    }
-  };
-
-  // Main click handler
-  const handleClick = async () => {
+  const openPicker = async () => {
     if (isLoading || !isApiLoaded) return;
 
     setIsLoading(true);
 
     try {
-      // Step 1: Check if authenticated
+      // Check if we're returning from OAuth and should open picker immediately
+      const pickerPending = sessionStorage.getItem('google_picker_pending');
       const isAuthenticated = await checkAuthStatus();
 
       if (!isAuthenticated) {
-        // Step 2: If not authenticated, initiate OAuth flow
+        // Start OAuth flow
         await initiateLogin();
-        return; // Function will be called again after redirect
+        return;
       }
 
-      // Step 3: Get access token for Picker API
-      const accessToken = await getPickerToken();
+      // Clear the pending flag since we're authenticated
+      if (pickerPending) {
+        sessionStorage.removeItem('google_picker_pending');
+      }
 
-      // Step 4: Show picker
+      // Open the picker
+      const accessToken = await getPickerToken();
       await showPicker(accessToken);
     } catch (error) {
       console.error('Error in image picker flow:', error);
@@ -313,7 +305,10 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
     }
   };
 
-  // Render children with click handler
+  const handleClick = async () => {
+    await openPicker();
+  };
+
   return (
     <div onClick={handleClick} className={className}>
       {children || (
@@ -325,7 +320,6 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
   );
 };
 
-// Export utility functions for advanced use cases
 export {
   checkAuthStatus,
   initiateLogin,

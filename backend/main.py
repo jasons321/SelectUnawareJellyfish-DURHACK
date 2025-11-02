@@ -1,6 +1,4 @@
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
-from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -28,6 +26,9 @@ app = FastAPI(
 
 CLIENT_SECRET_FILE = 'client_secret.json'
 SCOPES = [
+    'https://www.googleapis.com/auth/photoslibrary',
+    'https://www.googleapis.com/auth/photoslibrary.readonly',
+    'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/drive.readonly',
     'https://www.googleapis.com/auth/drive.metadata.readonly'
 ]
@@ -87,15 +88,21 @@ async def auth_status(request: Request):
     return {"authenticated": False}
 
 @app.get("/api/auth/login")
-async def login():
+async def login(request: Request):
     """Initiate OAuth flow"""
     try:
         flow = create_flow()
         
+        # Check if user already has a session (re-authentication)
+        session_id = request.cookies.get("session_id")
+        has_existing_session = session_id and session_id in sessions
+        
         # Generate authorisation URL
+        # Only force consent if this is the first time or if we don't have a refresh token
         authorization_url, state = flow.authorization_url(
             access_type='offline',
-            prompt='consent'  # Force consent to get refresh token
+            prompt='select_account' if has_existing_session else 'consent',
+            include_granted_scopes='true'  # Only request incremental scopes
         )
         
         # Store state temporarily
@@ -184,7 +191,8 @@ async def get_picker_token(request: Request):
         
         # Refresh token if expired
         if credentials.expired:
-            credentials.refresh(Request())
+            from google.auth.transport.requests import Request as GoogleRequest
+            credentials.refresh(GoogleRequest())
             update_session_token(session_id, credentials)
         
         return {
