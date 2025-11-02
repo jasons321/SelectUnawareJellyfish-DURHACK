@@ -5,19 +5,70 @@ import React from "react";
 export default function ResultsPage() {
   const location = useLocation();
 
-  const { groups, filesMap } = location.state as {
+  const { groups, filesMap, files } = location.state as {
     groups: string[][];
     filesMap: Record<string, string>;
+    files: File[];
   };
 
-  const [selectedGroups, setSelectedGroups] = React.useState<boolean[]>(
-    () => groups.map(() => true)
+  // Debug: Log what we received
+  React.useEffect(() => {
+    console.log('Results page received:');
+    console.log('- groups:', groups);
+    console.log('- files:', files);
+    console.log('- files length:', files?.length);
+    console.log('- filesMap keys:', Object.keys(filesMap));
+  }, [groups, files, filesMap]);
+
+  // Initialize state to select all images except the last one in each group
+  const [selectedImages, setSelectedImages] = React.useState<boolean[][]>(() =>
+    groups.map((group) =>
+      group.map((_, index) => index !== group.length - 1) // Select all except the last image in each group
+    )
   );
 
-  const toggleGroupSelection = (groupIndex: number) => {
-    setSelectedGroups((prev) =>
-      prev.map((val, idx) => (idx === groupIndex ? !val : val))
-    );
+  const toggleImageSelection = (groupIndex: number, imageIndex: number) => {
+    setSelectedImages((prev) => {
+      const updatedSelection = [...prev];
+      updatedSelection[groupIndex] = [...updatedSelection[groupIndex]];
+      updatedSelection[groupIndex][imageIndex] = !updatedSelection[groupIndex][imageIndex];
+      return updatedSelection;
+    });
+  };
+
+  const handleConfirmSelection = () => {
+    console.log('=== CONFIRM SELECTION DEBUG ===');
+    console.log('Files array:', files);
+    console.log('Files length:', files?.length);
+    
+    // Create a set of filenames that should be REMOVED (selected for deletion)
+    const filesToRemove = new Set<string>();
+    
+    groups.forEach((group, groupIndex) => {
+      group.forEach((filename, imageIndex) => {
+        // If the image is selected (checked/red), it should be removed
+        if (selectedImages[groupIndex][imageIndex]) {
+          filesToRemove.add(filename);
+        }
+      });
+    });
+
+    console.log('Files to remove (Set):', Array.from(filesToRemove));
+
+    // Filter files: keep only those NOT in the filesToRemove set
+    const filteredFiles = files.filter((file) => {
+      const shouldKeep = !filesToRemove.has(file.name);
+      console.log(`File "${file.name}": ${shouldKeep ? 'KEEP' : 'REMOVE'}`);
+      return shouldKeep;
+    });
+
+    console.log('Files to remove:', Array.from(filesToRemove));
+    console.log('Files to keep:', filteredFiles);
+    console.log('Original count:', files?.length || 0, '-> Filtered count:', filteredFiles.length);
+    console.log('=== END DEBUG ===');
+    
+    // TODO: Navigate to next step or update state with filteredFiles
+    // Example: navigate('/next-step', { state: { files: filteredFiles } });
   };
 
   return (
@@ -71,26 +122,16 @@ export default function ResultsPage() {
         {groups.map((group, groupIndex) => (
           <Box
             key={`group-${groupIndex}`}
-            onClick={() => toggleGroupSelection(groupIndex)}
             sx={{
-              border: selectedGroups[groupIndex]
-                ? "2px solid #8edeab"
-                : "1px solid rgba(255,255,255,0.2)",
+              border: "1px solid rgba(255,255,255,0.2)",
               borderRadius: 2,
               p: 2,
-              background: selectedGroups[groupIndex]
-                ? "rgba(142,222,171,0.1)"
-                : "rgba(255,255,255,0.05)",
+              background: "rgba(255,255,255,0.05)",
               display: "flex",
               flexWrap: "wrap",
               gap: 2,
               cursor: "pointer",
               transition: "all 0.3s ease",
-              "&:hover": {
-                background: selectedGroups[groupIndex]
-                  ? "rgba(142,222,171,0.15)"
-                  : "rgba(255,255,255,0.08)",
-              },
             }}
           >
             <Typography
@@ -105,20 +146,36 @@ export default function ResultsPage() {
               Group {groupIndex + 1}
             </Typography>
 
-            {group.map((filename: string) => (
+            {group.map((filename: string, imageIndex: number) => (
               <Box
                 key={filename}
+                onClick={() => toggleImageSelection(groupIndex, imageIndex)}
                 sx={{
                   width: 120,
                   height: 120,
                   borderRadius: 2,
                   overflow: "hidden",
-                  border: "1px solid rgba(255,255,255,0.2)",
+                  border: selectedImages[groupIndex][imageIndex]
+                    ? "3px solid #ff4444" // Thicker, brighter red border for selected (to be deleted)
+                    : "3px solid rgba(142, 222, 171, 0.6)", // Green border for kept images
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "rgba(0,0,0,0.3)",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                  backgroundColor:
+                    selectedImages[groupIndex][imageIndex]
+                      ? "rgba(255,0,0,0.3)" // Red background for selected (will be deleted)
+                      : "rgba(0,0,0,0.3)", // Dark background for kept
+                  boxShadow: selectedImages[groupIndex][imageIndex]
+                    ? "0 0 15px rgba(255,68,68,0.6)" // Red glow for selected
+                    : "0 4px 12px rgba(0,0,0,0.5)",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  "&:hover": {
+                    border: selectedImages[groupIndex][imageIndex]
+                      ? "3px solid #ff6666"
+                      : "3px solid rgba(142, 222, 171, 0.9)",
+                    transform: "scale(1.05)",
+                  },
                 }}
               >
                 <img
@@ -132,6 +189,9 @@ export default function ResultsPage() {
         ))}
 
         <Box sx={{ textAlign: "center", mt: 3 }}>
+          <Typography variant="body2" sx={{ mb: 2, color: "#ccc" }}>
+            🔴 Red border = Will be deleted | 🟢 Green border = Will be kept
+          </Typography>
           <Button
             variant="contained"
             sx={{
@@ -147,11 +207,7 @@ export default function ResultsPage() {
                 boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
               },
             }}
-            onClick={() => {
-              const selected = groups.filter((_, idx) => selectedGroups[idx]);
-              console.log("Selected groups:", selected);
-              // navigate("/next-step", { state: { selected } });
-            }}
+            onClick={handleConfirmSelection}
           >
             Confirm Selection
           </Button>
