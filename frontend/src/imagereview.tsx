@@ -1,8 +1,10 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
-import { Box, Typography, Chip, IconButton, Button } from "@mui/material";
+import { Box, Typography, Chip, IconButton, Button, TextField } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import DeleteIcon from "@mui/icons-material/Delete";
+import AddIcon from "@mui/icons-material/Add";
 
 interface GeminiResult {
   name: string;
@@ -23,6 +25,16 @@ interface ImageReviewPageProps {
 export default function ImageReviewPage({ images: sampleImages }: ImageReviewPageProps) {
   const location = useLocation();
   const [currentIndex, setCurrentIndex] = React.useState(0);
+  
+  // State to track edits for each image
+  const [editedMetadata, setEditedMetadata] = React.useState<Record<number, {
+    name?: string;
+    tags?: string[];
+    description?: string;
+  }>>({});
+  
+  // State for new tag input
+  const [newTagInput, setNewTagInput] = React.useState("");
 
   // Try to get real data from navigation state, fall back to sample data
   const { processedResults, filteredFiles } = (location.state as {
@@ -100,13 +112,52 @@ export default function ImageReviewPage({ images: sampleImages }: ImageReviewPag
   }, [processedResults, filteredFiles, sampleImages]);
 
   const currentImage = imageData[currentIndex];
+  
+  // Get current metadata (edited or original)
+  const getCurrentMetadata = () => {
+    const edited = editedMetadata[currentIndex];
+    return {
+      name: edited?.name ?? currentImage?.name ?? "",
+      tags: edited?.tags ?? currentImage?.tags ?? [],
+      description: edited?.description ?? currentImage?.description ?? "",
+    };
+  };
+  
+  const currentMetadata = getCurrentMetadata();
+  
+  // Update metadata for current image
+  const updateMetadata = (field: 'name' | 'tags' | 'description', value: string | string[]) => {
+    setEditedMetadata(prev => ({
+      ...prev,
+      [currentIndex]: {
+        ...prev[currentIndex],
+        [field]: value,
+      }
+    }));
+  };
+  
+  // Tag management
+  const handleDeleteTag = (tagIndex: number) => {
+    const newTags = currentMetadata.tags.filter((_, idx) => idx !== tagIndex);
+    updateMetadata('tags', newTags);
+  };
+  
+  const handleAddTag = () => {
+    if (newTagInput.trim()) {
+      const newTags = [...currentMetadata.tags, newTagInput.trim()];
+      updateMetadata('tags', newTags);
+      setNewTagInput("");
+    }
+  };
 
   const handleNext = () => {
     setCurrentIndex((prev) => (prev + 1) % imageData.length);
+    setNewTagInput(""); // Clear tag input when changing images
   };
 
   const handlePrevious = () => {
     setCurrentIndex((prev) => (prev - 1 + imageData.length) % imageData.length);
+    setNewTagInput(""); // Clear tag input when changing images
   };
 
   const handleDownload = () => {
@@ -265,18 +316,28 @@ export default function ImageReviewPage({ images: sampleImages }: ImageReviewPag
             >
               Filename
             </Typography>
-            <Typography
-              variant="body1"
+            <TextField
+              fullWidth
+              value={currentMetadata.name}
+              onChange={(e) => updateMetadata('name', e.target.value)}
+              variant="outlined"
               sx={{
-                color: "#fff",
-                backgroundColor: "rgba(255,255,255,0.05)",
-                padding: "8px 12px",
-                borderRadius: "8px",
-                border: "1px solid rgba(255,255,255,0.1)",
+                "& .MuiOutlinedInput-root": {
+                  color: "#fff",
+                  backgroundColor: "rgba(255,255,255,0.05)",
+                  borderRadius: "8px",
+                  "& fieldset": {
+                    borderColor: "rgba(255,255,255,0.1)",
+                  },
+                  "&:hover fieldset": {
+                    borderColor: "rgba(142,222,171,0.5)",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#8edeab",
+                  },
+                },
               }}
-            >
-              {currentImage.name}
-            </Typography>
+            />
           </Box>
 
           {/* Tags */}
@@ -287,19 +348,88 @@ export default function ImageReviewPage({ images: sampleImages }: ImageReviewPag
             >
               Tags
             </Typography>
-            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-              {currentImage.tags.map((tag, idx) => (
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+              {currentMetadata.tags.map((tag, idx) => (
                 <Chip
                   key={idx}
                   label={tag}
+                  onDelete={() => handleDeleteTag(idx)}
+                  deleteIcon={
+                    <DeleteIcon 
+                      sx={{ 
+                        color: "#ff6b6b !important",
+                        "&:hover": { color: "#ff4444 !important" }
+                      }} 
+                    />
+                  }
                   sx={{
                     backgroundColor: "rgba(142,222,171,0.2)",
                     color: "#b2ffb2",
                     border: "1px solid rgba(142,222,171,0.4)",
                     fontWeight: "bold",
+                    "& .MuiChip-deleteIcon": {
+                      opacity: 0,
+                      transition: "opacity 0.2s",
+                    },
+                    "&:hover .MuiChip-deleteIcon": {
+                      opacity: 1,
+                    },
                   }}
                 />
               ))}
+              
+              {/* Add new tag input */}
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                <TextField
+                  size="small"
+                  placeholder="Add tag..."
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleAddTag();
+                    }
+                  }}
+                  sx={{
+                    width: "120px",
+                    "& .MuiOutlinedInput-root": {
+                      color: "#fff",
+                      backgroundColor: "rgba(255,255,255,0.05)",
+                      height: "32px",
+                      "& fieldset": {
+                        borderColor: "rgba(255,255,255,0.2)",
+                      },
+                      "&:hover fieldset": {
+                        borderColor: "rgba(142,222,171,0.5)",
+                      },
+                      "&.Mui-focused fieldset": {
+                        borderColor: "#8edeab",
+                      },
+                    },
+                    "& .MuiOutlinedInput-input": {
+                      padding: "6px 8px",
+                    },
+                  }}
+                />
+                <IconButton
+                  size="small"
+                  onClick={handleAddTag}
+                  disabled={!newTagInput.trim()}
+                  sx={{
+                    color: "#8edeab",
+                    backgroundColor: "rgba(142,222,171,0.1)",
+                    "&:hover": {
+                      backgroundColor: "rgba(142,222,171,0.2)",
+                    },
+                    "&:disabled": {
+                      color: "rgba(255,255,255,0.3)",
+                      backgroundColor: "transparent",
+                    },
+                  }}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Box>
             </Box>
           </Box>
 
@@ -311,19 +441,30 @@ export default function ImageReviewPage({ images: sampleImages }: ImageReviewPag
             >
               Description
             </Typography>
-            <Typography
-              variant="body1"
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              value={currentMetadata.description}
+              onChange={(e) => updateMetadata('description', e.target.value)}
+              variant="outlined"
               sx={{
-                color: "#fff",
-                backgroundColor: "rgba(255,255,255,0.05)",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "1px solid rgba(255,255,255,0.1)",
-                lineHeight: 1.6,
+                "& .MuiOutlinedInput-root": {
+                  color: "#fff",
+                  backgroundColor: "rgba(255,255,255,0.05)",
+                  borderRadius: "8px",
+                  "& fieldset": {
+                    borderColor: "rgba(255,255,255,0.1)",
+                  },
+                  "&:hover fieldset": {
+                    borderColor: "rgba(142,222,171,0.5)",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#8edeab",
+                  },
+                },
               }}
-            >
-              {currentImage.description}
-            </Typography>
+            />
           </Box>
         </Box>
 
