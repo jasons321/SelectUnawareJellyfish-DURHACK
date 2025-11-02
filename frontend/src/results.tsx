@@ -1,4 +1,4 @@
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Box, Typography, Button, CircularProgress, LinearProgress, Alert } from "@mui/material";
 import React from "react";
 
@@ -20,7 +20,7 @@ interface StreamEvent {
 
 export default function ResultsPage() {
   const location = useLocation();
-  // Removed unused navigate - uncomment when you need it for navigation after processing
+  const navigate = useNavigate();
 
   const { groups, filesMap, files } = location.state as {
     groups: string[][];
@@ -50,6 +50,31 @@ export default function ResultsPage() {
   const [uploadProgress, setUploadProgress] = React.useState<number>(0);
   const [processedResults, setProcessedResults] = React.useState<Record<string, GeminiResult>>({});
   const [errorMessage, setErrorMessage] = React.useState<string>("");
+  const [filteredFiles, setFilteredFiles] = React.useState<File[]>([]);
+  const [processingComplete, setProcessingComplete] = React.useState(false);
+
+  // Navigate to review page when processing is complete
+  React.useEffect(() => {
+    if (processingComplete && filteredFiles.length > 0) {
+      console.log('=== NAVIGATION DEBUG ===');
+      console.log('All processed results:', processedResults);
+      console.log('processedResults keys:', Object.keys(processedResults));
+      console.log('filteredFiles:', filteredFiles.map((f, i) => `${i}: ${f.name}`));
+      console.log('filteredFiles count:', filteredFiles.length);
+      console.log('=== END NAVIGATION DEBUG ===');
+      
+      navigate('/review', { 
+        state: { 
+          processedResults, 
+          filteredFiles 
+        } 
+      });
+      
+      // Reset the flag
+      setProcessingComplete(false);
+    }
+  }, [processingComplete, processedResults, filteredFiles, navigate]);
+
 
   const toggleImageSelection = (groupIndex: number, imageIndex: number) => {
     setSelectedImages((prev) => {
@@ -96,6 +121,9 @@ export default function ResultsPage() {
       setErrorMessage("No files to process. Please select at least one image to keep.");
       return;
     }
+    
+    // Store filtered files for later navigation
+    setFilteredFiles(filteredFiles);
 
     // Start processing
     await uploadAndProcessImages(filteredFiles);
@@ -246,12 +274,7 @@ export default function ResultsPage() {
         setUploadProgress(100);
         setTimeout(() => {
           setIsProcessing(false);
-          console.log('All processed results:', processedResults);
-          
-          // TODO: Navigate to next page when ready
-          // Uncomment the line below and add: import { useNavigate } from "react-router-dom";
-          // const navigate = useNavigate();
-          // navigate('/metadata-editor', { state: { processedResults, filteredFiles } });
+          setProcessingComplete(true); // Trigger navigation via useEffect
         }, 1000);
         break;
 
