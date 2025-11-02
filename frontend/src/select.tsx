@@ -111,14 +111,15 @@ export default function SelectPage() {
       // Clear the selection from sessionStorage
       sessionStorage.removeItem('selected_card');
 
+      const filesMap: Record<string, string> = {};
+      for (const file of fileArray) {
+        filesMap[file.name] = URL.createObjectURL(file); 
+      }
+
       navigate('/results', {
         state: {
           groups: resultData.groups,
-          phash: resultData.phash,
-          files: fileArray.map((f) => ({
-            name: f.name,
-            url: URL.createObjectURL(f),
-          })),
+          filesMap: filesMap,
         },
       });
     } catch (err) {
@@ -206,16 +207,6 @@ export default function SelectPage() {
       // Clear the selection from sessionStorage
       sessionStorage.removeItem('selected_card');
 
-      navigate('/results', {
-        state: {
-          groups: result.groups,
-          phash: result.phash,
-          files: files.map((f) => ({
-            name: f.name,
-            url: URL.createObjectURL(f),
-          })),
-        },
-      });
       const filesMap: Record<string, string> = {};
       for (const file of files) {
         const base64 = await new Promise<string>((resolve, reject) => {
