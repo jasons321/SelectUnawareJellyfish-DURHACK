@@ -14,6 +14,7 @@ import {
   ListItemIcon,
   ListItemText,
   Divider,
+  Backdrop,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -39,6 +40,8 @@ export default function SelectPage() {
 
   const [isGoogleDriveProcessing, setIsGoogleDriveProcessing] = React.useState(false);
   const [isOneDriveProcessing, setIsOneDriveProcessing] = React.useState(false);
+  const [isProcessing, setIsProcessing] = React.useState(false);
+  const [processingMessage, setProcessingMessage] = React.useState('');
   const navigate = useNavigate();
 
   // Save selected card to sessionStorage whenever it changes
@@ -84,6 +87,8 @@ export default function SelectPage() {
   const handleGoogleDriveFilesSelected = async (result: GoogleImagePickerResult) => {
     console.log('Google Drive files selected:', result.files);
     setIsGoogleDriveProcessing(true);
+    setIsProcessing(true);
+    setProcessingMessage('Processing images from Google Drive...');
 
     try {
       const fileArray: File[] = [];
@@ -99,6 +104,7 @@ export default function SelectPage() {
       }
 
       console.log(`Converted ${fileArray.length} files from Google Drive`);
+      setProcessingMessage(`Analysing ${fileArray.length} images for duplicates...`);
 
       const formData = new FormData();
       fileArray.forEach((file) => formData.append('images', file));
@@ -133,6 +139,7 @@ export default function SelectPage() {
     } catch (err) {
       console.error('Error processing Google Drive images:', err);
       alert('Failed to process Google Drive images. Please try again.');
+      setIsProcessing(false);
     } finally {
       setIsGoogleDriveProcessing(false);
     }
@@ -142,6 +149,8 @@ export default function SelectPage() {
   const handleOneDriveFilesSelected = async (result: OneDrivePickerResult) => {
     console.log('OneDrive files selected:', result.files);
     setIsOneDriveProcessing(true);
+    setIsProcessing(true);
+    setProcessingMessage('Processing images from OneDrive...');
 
     try {
       const fileArray: File[] = [];
@@ -157,6 +166,7 @@ export default function SelectPage() {
       }
 
       console.log(`Converted ${fileArray.length} files from OneDrive`);
+      setProcessingMessage(`Analysing ${fileArray.length} images for duplicates...`);
 
       const formData = new FormData();
       fileArray.forEach((file) => formData.append('images', file));
@@ -189,6 +199,7 @@ export default function SelectPage() {
     } catch (err) {
       console.error('Error processing OneDrive images:', err);
       alert('Failed to process OneDrive images. Please try again.');
+      setIsProcessing(false);
     } finally {
       setIsOneDriveProcessing(false);
     }
@@ -198,11 +209,25 @@ export default function SelectPage() {
     console.error('Google Drive error:', error);
     alert(`Google Drive error: ${error.message}`);
     setIsGoogleDriveProcessing(false);
+    setIsProcessing(false);
   };
 
   const handleOneDriveError = (error: Error) => {
     console.error('OneDrive error:', error);
     alert(`OneDrive error: ${error.message}`);
+    setIsOneDriveProcessing(false);
+    setIsProcessing(false);
+  };
+
+  const handleGooglePickerCancelled = () => {
+    console.log('Google Picker cancelled');
+    setIsProcessing(false);
+    setIsGoogleDriveProcessing(false);
+  };
+
+  const handleOnedrivePickerCancelled = () => {
+    console.log('OneDrive Picker cancelled');
+    setIsProcessing(false);
     setIsOneDriveProcessing(false);
   };
 
@@ -260,6 +285,9 @@ export default function SelectPage() {
     if (files.length === 0) return;
 
     setComputing(true);
+    setIsProcessing(true);
+    setProcessingMessage(`Analysing ${files.length} images for duplicates...`);
+    
     const formData = new FormData();
     files.forEach((file) => formData.append("images", file));
 
@@ -291,6 +319,7 @@ export default function SelectPage() {
       navigate("/results", { state: { groups: result.groups, filesMap, files: files } });
     } catch (err) {
       console.error("Error computing image groups:", err);
+      setIsProcessing(false);
     } finally {
       setComputing(false);
     }
@@ -319,6 +348,61 @@ export default function SelectPage() {
         },
       }}
     >
+      {/* Processing Overlay */}
+      <Backdrop
+        open={isProcessing}
+        sx={{
+          zIndex: (theme) => theme.zIndex.modal + 1,
+          background: "linear-gradient(-45deg, rgba(15,32,39,0.95), rgba(32,58,67,0.95), rgba(44,83,100,0.95), rgba(24,78,104,0.95))",
+          backgroundSize: "400% 400%",
+          animation: "gradientShift 12s ease infinite",
+          backdropFilter: "blur(10px)",
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 3,
+            padding: 4,
+            borderRadius: "20px",
+            background: "rgba(20,20,20,0.6)",
+            border: "1px solid rgba(142,222,171,0.3)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.8)",
+          }}
+        >
+          <CircularProgress
+            size={80}
+            thickness={4}
+            sx={{
+              color: "#8edeab",
+              filter: "drop-shadow(0 0 10px rgba(142,222,171,0.5))",
+            }}
+          />
+          <Typography
+            variant="h5"
+            sx={{
+              fontWeight: "bold",
+              color: "#b2ffb2",
+              textAlign: "center",
+              textShadow: "0 0 10px rgba(178,255,178,0.6)",
+            }}
+          >
+            {processingMessage}
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "rgba(255,255,255,0.7)",
+              textAlign: "center",
+            }}
+          >
+            Please wait while we analyse your images...
+          </Typography>
+        </Box>
+      </Backdrop>
+
       <Box
         sx={{
           textAlign: "center",
@@ -358,11 +442,24 @@ export default function SelectPage() {
           <GoogleImagePicker
             onFilesSelected={handleGoogleDriveFilesSelected}
             onError={handleGoogleDriveError}
+            onPickerCancelled={handleGooglePickerCancelled}
+            onPickerOpened={() => {
+              setIsProcessing(false);
+              setProcessingMessage('');
+            }}
+            onPickerStarted={() => {
+              setIsProcessing(true);
+              setProcessingMessage('Processing selected images...');
+            }}
             maxFiles={50}
           >
             <Button
               data-continue-button
               variant="contained"
+              onClick={() => {
+                setIsProcessing(true);
+                setProcessingMessage('Opening Google Drive picker...');
+              }}
               sx={{
                 background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
                 color: "#fff",
@@ -375,8 +472,12 @@ export default function SelectPage() {
                   background: "linear-gradient(45deg, #57cc99, #2fa88a)",
                   boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
                 },
+                "&:disabled": {
+                  background: "rgba(255,255,255,0.15)",
+                  color: "rgba(255,255,255,0.5)",
+                },
               }}
-              disabled={selectedCard === null || isGoogleDriveProcessing}
+              disabled={selectedCard === null || isGoogleDriveProcessing || isProcessing}
             >
               {isGoogleDriveProcessing ? (
                 <CircularProgress size={24} color="inherit" />
@@ -389,11 +490,16 @@ export default function SelectPage() {
           <OneDriveImagePicker
             onFilesSelected={handleOneDriveFilesSelected}
             onError={handleOneDriveError}
+            onPickerCancelled={handleOnedrivePickerCancelled}
             maxFiles={50}
           >
             <Button
               data-continue-button
               variant="contained"
+              onClick={() => {
+                setIsProcessing(true);
+                setProcessingMessage('Opening OneDrive picker...');
+              }}
               sx={{
                 background: "linear-gradient(45deg, #6ee7b7, #3caea3)",
                 color: "#fff",
@@ -406,8 +512,12 @@ export default function SelectPage() {
                   background: "linear-gradient(45deg, #57cc99, #2fa88a)",
                   boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
                 },
+                "&:disabled": {
+                  background: "rgba(255,255,255,0.15)",
+                  color: "rgba(255,255,255,0.5)",
+                },
               }}
-              disabled={selectedCard === null || isOneDriveProcessing}
+              disabled={selectedCard === null || isOneDriveProcessing || isProcessing}
             >
               {isOneDriveProcessing ? (
                 <CircularProgress size={24} color="inherit" />
@@ -431,9 +541,13 @@ export default function SelectPage() {
                 background: "linear-gradient(45deg, #57cc99, #2fa88a)",
                 boxShadow: "0px 0px 20px rgba(110,231,183,0.8)",
               },
+              "&:disabled": {
+                background: "rgba(255,255,255,0.15)",
+                color: "rgba(255,255,255,0.5)",
+              },
             }}
             onClick={handleContinue}
-            disabled={selectedCard === null}
+            disabled={selectedCard === null || isProcessing}
           >
             Continue
           </Button>
@@ -622,7 +736,7 @@ export default function SelectPage() {
         <DialogActions>
           <Button
             onClick={handleClosePopup}
-            disabled={computing}
+            disabled={computing || isProcessing}
             sx={{ color: "#ccc", "&:hover": { color: "#fff" } }}
           >
             Cancel
@@ -630,17 +744,17 @@ export default function SelectPage() {
           <Button
             variant="contained"
             onClick={handleLocalCompute}
-            disabled={uploadedFiles.length === 0 || computing}
+            disabled={uploadedFiles.length === 0 || computing || isProcessing}
             sx={{
               background:
-                uploadedFiles.length > 0 && !computing
+                uploadedFiles.length > 0 && !computing && !isProcessing
                   ? "linear-gradient(45deg, #8edeab, #57cc99)"
                   : "rgba(255,255,255,0.15)",
               color: "#fff",
               borderRadius: "30px",
               "&:hover": {
                 background:
-                  uploadedFiles.length > 0 && !computing
+                  uploadedFiles.length > 0 && !computing && !isProcessing
                     ? "linear-gradient(45deg, #57cc99, #2fa88a)"
                     : "rgba(255,255,255,0.25)",
               },

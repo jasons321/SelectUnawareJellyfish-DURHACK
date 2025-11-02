@@ -18,6 +18,7 @@ export interface OneDrivePickerResult {
 interface OneDriveImagePickerProps {
   onFilesSelected?: (result: OneDrivePickerResult) => void;
   onError?: (error: Error) => void;
+  onPickerCancelled?: () => void;
   maxFiles?: number;
   children?: React.ReactNode;
   className?: string;
@@ -151,6 +152,7 @@ const processPickedFilesWithDirectUrls = async (files: PickedFile[]): Promise<On
 export const OneDriveImagePicker: React.FC<OneDriveImagePickerProps> = ({
   onFilesSelected,
   onError,
+  onPickerCancelled,
   maxFiles = 50,
   children,
   className,
@@ -239,6 +241,7 @@ export const OneDriveImagePicker: React.FC<OneDriveImagePickerProps> = ({
         cancel: () => {
             setIsLoading(false);
             console.log('Picker cancelled');
+            onPickerCancelled?.();
         },
         error: (error) => {
             setIsLoading(false);
@@ -249,7 +252,7 @@ export const OneDriveImagePicker: React.FC<OneDriveImagePickerProps> = ({
 
         window.OneDrive.open(pickerOptions);
     },
-    [maxFiles, onFilesSelected, onError]
+    [maxFiles, onFilesSelected, onError, onPickerCancelled]
     );
 
   const openPicker = async () => {
@@ -260,6 +263,7 @@ export const OneDriveImagePicker: React.FC<OneDriveImagePickerProps> = ({
     try {
       const clientId = await getClientId();
       await showPicker(clientId);
+      setIsLoading(false);
     } catch (error) {
       console.error('Error in OneDrive picker flow:', error);
       onError?.(error as Error);
