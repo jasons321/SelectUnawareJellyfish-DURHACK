@@ -1,0 +1,151 @@
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
+from google import genai
+import os
+import json
+import concurrent.futures
+from PIL import Image, ExifTags
+from pillow_heif import register_heif_opener
+import piexif
+
+
+# EXIF tag for 'ImageDescription' is 270
+IMAGE_DESCRIPTION_TAG = 270 
+
+
+@dataclass(slots=True)
+class ImageContainer:
+    """ A data container for image data """
+
+    filepath: str
+    img: Image.Image
+    exif_dict: Dict[int, Any] | Image.Exif
+    gemini_response : Dict[str, Any] = field(default_factory=dict)
+
+# class GeminiOutput(BaseModel):
+#     """Schema for Gemini's structured output."""
+#     tags: list[str] = Field(description="A list of five one-word tags")
+#     description: str = Field(description="A single short sentence summarising the image content.")
+#     filename: str = Field(description="A two to three word underscore-separated filename")
+
+class DataLoader:
+    """ Loads in the image data and stores it and the metadata """
+
+    def __init__(self, folder_path) -> None:
+        self.folder_path = folder_path
+        self.images: list[ImageContainer] = []
+
+    def load_images(self):
+        accepted_formats = ('heic', 'jpeg', 'jpg', 'png')
+        for root, _, files in os.walk(self.folder_path):
+            for name in files:
+                if name.endswith(accepted_formats):
+                    filepath = os.path.join(root, name)
+                    img = Image.open(filepath)
+                    # HEIF/HEIC files often store EXIF data in a different dictionary key
+                    # For robust reading, check both the standard method and the 'exif' key
+                    # if img.format in ('HEIF', 'HEIC') and 'exif' in img.info:
+                    #     exif_bytes = img.info['exif']
+                    #     exif_dict = piexif.load(exif_bytes)
+                    # else:
+                    # Standard JPEG/PNG/TIFF method
+                    exif_dict = img.getexif()
+                    if exif_dict is None:
+                        # return "No EXIF data found."
+                        return None
+                    # TODO: Unify exif_dict formats
+                    if exif_dict is not None: 
+                        self.images.append(ImageContainer(filepath=filepath, img=img, exif_dict=exif_dict))
+        return self.images
+
+        
+
+class ImageProcessor:
+
+    def __init__(self) -> None:
+        # Register the opener once at the start of your application
+        register_heif_opener()
+
+        # Start the Gemini client
+        self.client = genai.Client()
+
+
+    def gemini_inference(self, images: List[ImageContainer]) -> List[ImageContainer]|None:
+        """Uploads all images to Gemini, and then performs inference on them in one big batch"""
+
+        def upload_single_file(img_cont: ImageContainer):
+            """Uploads a single file and returns the uploaded File object."""
+            filepath = img_cont.filepath
+            print(f"Uploading {filepath}...")
+            try:
+                uploaded_file = self.client.files.upload(file=filepath)
+                print(f"Successfully uploaded: {uploaded_file.name}")
+                return uploaded_file
+            except Exception as e:
+                print(f"Error uploading {filepath}: {e}")
+                return None
+
+
+        # Use ThreadPoolExecutor to run tasks concurrently
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            uploaded_images = executor.map(upload_single_file, images)
+        
+        # Filter out any failed uploads
+        uploaded_images = [f for f in uploaded_images if f is not None]
+
+        # Send prompt
+        prompt = "Generate 3 one word tags, a short description sentence, and a filename consisting of 2 words in snake case (for example this_photo.jpg) followed by the file extension for each photo passed. Please return the results for each photo in JSON format with the fields 'name' for the filename 'tags' for the tags, and 'description' for the description. Output the analysis as a single JSON object. DO NOT include any markdown ```json tags"
+        contents = [image for image in uploaded_images]
+        contents.append(prompt) # pyright: ignore - pure nonsense error
+        response = self.client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents, # pyright: ignore - pure nonsense error
+            config={
+                "response_mime_type": "application/json", 
+            },
+        )
+        try:
+            # response.text is guaranteed to be valid JSON due to the config
+            resp_dict = json.loads(response.text) # pyright: ignore - pure nonsense error
+            # Assign gemini data to each image container object for use later
+            for i, img in enumerate(images):
+                img.gemini_response = resp_dict[i]
+            return images
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON: {e}")
+            return None
+
+    def update_image_data(self, image_container: ImageContainer):
+        """Updates the metadata and file name of a single image"""
+        folderpath = os.path.split(image_container.filepath)[0]
+        new_filepath = folderpath + '/' + image_container.gemini_response['name']
+        image_container.exif_dict[IMAGE_DESCRIPTION_TAG] = image_container.gemini_response['description'].encode('utf-8')
+
+        updated_exif_bytes = piexif.dump(image_container.exif_dict)
+        
+        # 2. Determine the save format
+        save_format = 'HEIC' if image_container.img.format in ('HEIF', 'HEIC') else image_container.img.format
+        
+        # 3. Save the image, passing the updated EXIF bytes to the 'exif' argument
+        image_container.img.save(
+            new_filepath, 
+            format=save_format, 
+            exif=updated_exif_bytes
+        )
+
+
+def main():
+    image_folder = "/home/alexander/Pictures/"
+    images = DataLoader(image_folder).load_images()
+    if images is not None:
+        processor = ImageProcessor()
+        images = processor.gemini_inference(images)
+    if images is not None:
+        for image in images:
+            print(f"Original name: {image.filepath}\nNew name: {image.gemini_response['name']}, tags: {image.gemini_response['tags']}, desc: {image.gemini_response['description']}")
+            processor.update_image_data(image)
+        
+
+
+if __name__ == "__main__":
+    main()
