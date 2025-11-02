@@ -4,15 +4,10 @@ from google import genai
 import os
 import json
 import concurrent.futures
-from PIL import Image, ExifTags
+from PIL import Image
 from google.genai.types import File
 from pillow_heif import register_heif_opener
-import piexif
 import subprocess
-
-
-# EXIF tag for 'ImageDescription' is 270
-IMAGE_DESCRIPTION_TAG = 270 
 
 
 @dataclass(slots=True)
