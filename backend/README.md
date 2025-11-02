@@ -1,4 +1,4 @@
-# SelectUnawareJellyfish-DURHACK
+# Aegis
 
 ![aegis logo](aegis_logo.png)
 
