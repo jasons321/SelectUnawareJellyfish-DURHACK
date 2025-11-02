@@ -18,6 +18,9 @@ export interface GoogleImagePickerResult {
 interface GoogleImagePickerProps {
   onFilesSelected?: (result: GoogleImagePickerResult) => void;
   onError?: (error: Error) => void;
+  onPickerOpened?: () => void;
+  onPickerCancelled?: () => void;
+  onPickerStarted?: () => void;
   maxFiles?: number;
   children?: React.ReactNode;
   className?: string;
@@ -114,6 +117,9 @@ const loadGooglePickerAPI = (): Promise<void> => {
 export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
   onFilesSelected,
   onError,
+  onPickerOpened,
+  onPickerCancelled,
+  onPickerStarted,
   maxFiles = 50,
   children,
   className,
@@ -176,6 +182,7 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
   const pickerCallback = useCallback(
     async (data: google.picker.ResponseObject) => {
       if (data.action === google.picker.Action.PICKED) {
+        onPickerStarted?.();
         setIsLoading(true);
         
         try {
@@ -212,9 +219,10 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
         }
       } else if (data.action === google.picker.Action.CANCEL) {
         setIsLoading(false);
+        onPickerCancelled?.();
       }
     },
-    [maxFiles, onFilesSelected, onError]
+    [maxFiles, onFilesSelected, onError, onPickerCancelled, onPickerStarted]
   );
 
   useEffect(() => {
@@ -270,8 +278,11 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
         .build();
 
       picker.setVisible(true);
+      
+      setIsLoading(false);
+      onPickerOpened?.();
     },
-    [pickerCallback, maxFiles]
+    [pickerCallback, maxFiles, onPickerOpened]
   );
 
   const openPicker = async () => {
@@ -280,24 +291,21 @@ export const GoogleImagePicker: React.FC<GoogleImagePickerProps> = ({
     setIsLoading(true);
 
     try {
-      // Check if we're returning from OAuth and should open picker immediately
       const pickerPending = sessionStorage.getItem('google_picker_pending');
       const isAuthenticated = await checkAuthStatus();
 
       if (!isAuthenticated) {
-        // Start OAuth flow
         await initiateLogin();
         return;
       }
 
-      // Clear the pending flag since we're authenticated
       if (pickerPending) {
         sessionStorage.removeItem('google_picker_pending');
       }
 
-      // Open the picker
       const accessToken = await getPickerToken();
       await showPicker(accessToken);
+      
     } catch (error) {
       console.error('Error in image picker flow:', error);
       onError?.(error as Error);
