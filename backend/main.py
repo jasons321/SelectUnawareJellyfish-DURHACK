@@ -868,11 +868,34 @@ async def upload_images(files: List[UploadFile] = File(...)):
             yield f"data: {json.dumps({'status': 'error', 'message': f'Processing error: {str(e)}'})}\n\n"
         
         finally:
-            try:
-                shutil.rmtree(temp_dir)
-                print(f"Cleaned up {temp_dir}")
-            except Exception as e:
-                print(f"Error cleaning up temp files: {e}")
+            # Windows-compatible cleanup with retry logic
+            import time
+            import gc
+            
+            # Force garbage collection to release file handles
+            gc.collect()
+            
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # Try to remove the directory
+                    shutil.rmtree(temp_dir, ignore_errors=False)
+                    print(f"Cleaned up {temp_dir}")
+                    break
+                except PermissionError as e:
+                    if attempt < max_retries - 1:
+                        print(f"Cleanup attempt {attempt + 1} failed, retrying in 1 second...")
+                        time.sleep(1)
+                    else:
+                        # Last attempt - use ignore_errors
+                        print(f"Warning: Could not clean up all files in {temp_dir}: {e}")
+                        try:
+                            shutil.rmtree(temp_dir, ignore_errors=True)
+                        except:
+                            pass
+                except Exception as e:
+                    print(f"Error cleaning up temp files: {e}")
+                    break
     
     return StreamingResponse(
         generate_stream(),

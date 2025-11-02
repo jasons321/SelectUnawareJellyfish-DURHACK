@@ -42,6 +42,8 @@ class DataLoader:
                 if name.endswith(accepted_formats):
                     filepath = os.path.join(root, name)
                     img = Image.open(filepath)
+                    # Load image into memory to release file handle
+                    img.load()
                     # HEIF/HEIC files often store EXIF data in a different dictionary key
                     # For robust reading, check both the standard method and the 'exif' key
                     # if img.format in ('HEIF', 'HEIC') and 'exif' in img.info:
